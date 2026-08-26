@@ -33,10 +33,11 @@ public class MultiChatClientConfig {
     public ChatClient qwenChatClient(
             @Value("${spring.ai.qwen.base-url:https://dashscope.aliyuncs.com/compatible-mode/v1}") String baseUrl,
             @Value("${spring.ai.qwen.api-key:}") String apiKey,
-            @Value("${spring.ai.qwen.model:qwen-plus}") String model) {
+            @Value("${spring.ai.qwen.model:qwen3.6-flash}") String model) {
         OpenAiApi qwenApi = OpenAiApi.builder()
                 .baseUrl(baseUrl)
                 .apiKey(apiKey)
+                .completionsPath("/chat/completions") // base-url 已含 /v1，避免重复 /v1
                 .build();
         OpenAiChatModel qwenModel = OpenAiChatModel.builder()
                 .openAiApi(qwenApi)

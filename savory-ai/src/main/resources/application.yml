@@ -17,9 +17,9 @@ spring:
           model: deepseek-chat
           temperature: 0.7
     qwen:
-      base-url: ${QWEN_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode/v1}
-      api-key: ${DASHSCOPE_API_KEY:}
-      model: qwen-plus
+      base-url: ${QIANWEN_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode/v1}
+      api-key: ${QIANWEN_API_KEY:}
+      model: qwen3.6-flash
     openai:
       base-url: ${KIMI_BASE_URL:https://api.moonshot.cn/v1}
       api-key: ${KIMI_API_KEY:}
