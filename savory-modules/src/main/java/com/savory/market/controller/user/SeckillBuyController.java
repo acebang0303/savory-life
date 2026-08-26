@@ -2,6 +2,7 @@ package com.savory.market.controller.user;
 
 import com.savory.common.result.Result;
 import com.savory.market.dto.SeckillBuyDTO;
+import com.savory.market.seckill.ratelimit.RateLimit;
 import com.savory.market.service.SeckillService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -23,6 +24,7 @@ public class SeckillBuyController {
 
     @PostMapping("/{id}/buy")
     @Operation(summary = "抢购秒杀商品")
+    @RateLimit(key = "seckill:buy", permitsPerSecond = 200, intervalSeconds = 1)
     public Result<Long> buy(@PathVariable Long id, @RequestBody SeckillBuyDTO dto) {
         dto.setActivityId(id);
         log.info("秒杀抢购: activityId={}, dishId={}", id, dto.getDishId());
