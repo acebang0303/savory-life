@@ -136,7 +136,7 @@ onMounted(() => switchFeed('feed'))
 .note-images { display: flex; gap: 8rpx; margin-top: 12rpx; flex-wrap: wrap; }
 .note-img { width: 210rpx; height: 210rpx; border-radius: 8rpx; background: #f0f0f0; }
 .note-tags { display: flex; gap: 12rpx; margin-top: 12rpx; flex-wrap: wrap; }
-.tag { font-size: 22rpx; color: #1890FF; }
+.tag { font-size: 22rpx; color: $primary-color; }
 .note-footer { display: flex; gap: 32rpx; border-top: 1rpx solid #f5f5f5; padding-top: 12rpx; }
 .footer-action { display: flex; align-items: center; gap: 4rpx; font-size: 24rpx; color: #999; }
 .publish-btn {

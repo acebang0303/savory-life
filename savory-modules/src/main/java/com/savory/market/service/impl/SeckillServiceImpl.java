@@ -17,6 +17,7 @@ import com.savory.trade.mq.OrderMessageProducer;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -45,6 +46,9 @@ public class SeckillServiceImpl implements SeckillService {
 
     @Autowired
     private RedisTemplate<String, Object> redisTemplate;
+
+    @Autowired
+    private StringRedisTemplate stringRedisTemplate;
 
     @Autowired
     private OrderMessageProducer orderMessageProducer;
@@ -141,7 +145,9 @@ public class SeckillServiceImpl implements SeckillService {
         String stockKey = "seckill:stock:" + activityId + ":" + dto.getDishId();
         String userKey = "seckill:users:" + activityId;
 
-        Long result = redisTemplate.execute(
+        // 用 StringRedisTemplate 执行：Lua 参数若经 GenericJackson2Json 序列化会带引号，
+        // 导致 tonumber('"1"') 为 nil，比较时抛 "attempt to compare nil with number"
+        Long result = stringRedisTemplate.execute(
                 redisScript,
                 Arrays.asList(stockKey, userKey),
                 userId.toString(),
@@ -184,5 +190,22 @@ public class SeckillServiceImpl implements SeckillService {
         String userKey = "seckill:users:" + activityId;
         redisTemplate.opsForValue().increment(stockKey, quantity);
         redisTemplate.opsForHash().increment(userKey, String.valueOf(userId), -quantity);
+    }
+
+    @Override
+    public void restoreSeckillOnTimeout(Long activityId, Long userId) {
+        //1、查活动拿 dishId（订单表只存 activityId，dishId 经活动反查）
+        SeckillActivity activity = seckillActivityMapper.selectById(activityId);
+        if (activity == null) {
+            log.warn("秒杀活动不存在，跳过库存回补: activityId={}", activityId);
+            return;
+        }
+
+        //2、回补 DB 库存（秒杀下单时已 deductStock）
+        seckillActivityMapper.restoreStock(activityId, 1);
+
+        //3、回补 Redis 库存 + 用户限购计数
+        revertRedisStock(activityId, activity.getDishId(), userId, 1);
+        log.info("秒杀订单超时回补完成: activityId={}, dishId={}, userId={}", activityId, activity.getDishId(), userId);
     }
 }

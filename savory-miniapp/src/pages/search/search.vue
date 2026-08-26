@@ -106,7 +106,7 @@ const goShop = (id) => uni.navigateTo({ url: '/pages/shop/shop?id=' + id })
 .result-img { width: 120rpx; height: 120rpx; border-radius: 8rpx; margin-right: 16rpx; background: #f0f0f0; }
 .result-info { flex: 1; }
 .result-name { font-size: 30rpx; font-weight: 600; display: block; }
-.result-reason { font-size: 24rpx; color: #FAAD14; display: block; margin: 4rpx 0; }
+.result-reason { font-size: 24rpx; color: $warning-color; display: block; margin: 4rpx 0; }
 .result-price { font-size: 32rpx; font-weight: bold; color: $primary-color; }
 .empty { text-align: center; padding: 120rpx 0; color: #999; font-size: 28rpx; }
 .empty-hint { font-size: 24rpx; color: #ccc; display: block; margin-top: 8rpx; }

@@ -27,7 +27,7 @@ import java.util.stream.IntStream;
  * 手写 Agent Loop 运行时（移植自 JChatMind）。
  *
  * 设计要点：
- * 1. 状态机 IDLE→THINKING/EXECUTING→FINISHED/ERROR，MAX_STEPS=20 硬上限防死循环
+ * 1. 状态机 IDLE→THINKING/EXECUTING→FINISHED/ERROR，maxSteps 硬上限防死循环
  * 2. 关闭 Spring AI 内部工具自动执行（internalToolExecutionEnabled=false），
  *    由 ToolCallingManager 手动执行，便于在循环中观察与控制每一步
  * 3. 对话记忆用 ChatMemory（内存窗口），不做 DB 持久化（savory-ai 由上层 ConversationService 负责）
@@ -35,14 +35,17 @@ import java.util.stream.IntStream;
 @Slf4j
 public class JChatMind {
 
-    private static final Integer MAX_STEPS = 20;
+    private static final Integer DEFAULT_MAX_STEPS = 8;
     private static final Integer DEFAULT_MAX_MESSAGES = 20;
+    private static final Integer DEFAULT_TIMEOUT_SECONDS = 30;
 
     private final String systemPrompt;
     private final ChatClient chatClient;
     private final List<ToolCallback> availableTools;
     private final SseService sseService;
     private final String chatSessionId;
+    private final int maxSteps;
+    private final long timeoutMillis;
 
     private AgentState agentState;
     private final ToolCallingManager toolCallingManager;
@@ -55,7 +58,8 @@ public class JChatMind {
                      List<ToolCallback> availableTools,
                      SseService sseService,
                      String chatSessionId) {
-        this(chatClient, systemPrompt, availableTools, sseService, chatSessionId, List.of());
+        this(chatClient, systemPrompt, availableTools, sseService, chatSessionId,
+                List.of(), DEFAULT_MAX_STEPS, DEFAULT_TIMEOUT_SECONDS);
     }
 
     public JChatMind(ChatClient chatClient,
@@ -64,11 +68,25 @@ public class JChatMind {
                      SseService sseService,
                      String chatSessionId,
                      List<Message> memory) {
+        this(chatClient, systemPrompt, availableTools, sseService, chatSessionId,
+                memory, DEFAULT_MAX_STEPS, DEFAULT_TIMEOUT_SECONDS);
+    }
+
+    public JChatMind(ChatClient chatClient,
+                     String systemPrompt,
+                     List<ToolCallback> availableTools,
+                     SseService sseService,
+                     String chatSessionId,
+                     List<Message> memory,
+                     int maxSteps,
+                     int timeoutSeconds) {
         this.systemPrompt = systemPrompt;
         this.chatClient = chatClient;
         this.availableTools = availableTools;
         this.sseService = sseService;
         this.chatSessionId = chatSessionId;
+        this.maxSteps = maxSteps;
+        this.timeoutMillis = timeoutSeconds * 1000L;
 
         this.agentState = AgentState.IDLE;
 
@@ -170,21 +188,26 @@ public class JChatMind {
     }
 
     /**
-     * 运行 Agent Loop：最多 MAX_STEPS 轮，直到 FINISHED 或异常。
+     * 运行 Agent Loop：最多 maxSteps 轮，直到 FINISHED、超时或异常。
      */
     public void run() {
         if (agentState != AgentState.IDLE) {
             throw new IllegalStateException("Agent is not idle");
         }
 
+        long deadline = System.currentTimeMillis() + timeoutMillis;
         try {
-            for (int i = 0; i < MAX_STEPS && agentState != AgentState.FINISHED; i++) {
-                int currentStep = i + 1;
-                step();
-                if (currentStep >= MAX_STEPS) {
-                    agentState = AgentState.FINISHED;
-                    log.warn("Max steps reached, stopping agent");
+            int currentStep = 0;
+            while (currentStep < maxSteps && agentState != AgentState.FINISHED) {
+                if (System.currentTimeMillis() > deadline) {
+                    log.warn("Agent 超时（{}s），停止执行", timeoutMillis / 1000);
+                    break;
                 }
+                currentStep++;
+                step();
+            }
+            if (currentStep >= maxSteps) {
+                log.warn("达到最大步数 {}，停止执行", maxSteps);
             }
             agentState = AgentState.FINISHED;
         } catch (Exception e) {

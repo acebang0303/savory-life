@@ -94,7 +94,7 @@ savorylife 是一个「O2O 本地生活 + 内容社区 + AI Agent」全栈平台
 | 工具执行 | 框架自动执行 | 关闭 `internalToolExecutionEnabled(false)`，手动 `ToolCallingManager` 管理 |
 | 多模型 | 锁死 DeepSeek | `ChatClientRegistry` 注册表切换（deepseek  + Qwen + Kimi） |
 | RAG 分块 | `chunkText` 按 500 字切 | flexmark Markdown 按 Heading 分块 + bge-m3 Embedding |
-| Embedding | DeepSeek Embedding | 本地 Ollama bge-m3（`localhost:11434`） |
+| Embedding | bge-m3（SiliconFlow API） | 保持 bge-m3 不变（无需切换） |
 | SSE | 自写 `toSse` | `SseServiceImpl`（ConcurrentHashMap 管理连接） |
 | vector 映射 | `vectorToString` 手工拼串 | MyBatis `PgVectorTypeHandler` |
 
@@ -108,7 +108,7 @@ savorylife 是一个「O2O 本地生活 + 内容社区 + AI Agent」全栈平台
 - `controller/SseController.java`、`service/impl/SseServiceImpl.java`
 
 从智能问数复制：
-- `security/SqlSecurityValidator.java`（SQL 只读校验）
+- `security/SqlSecurityValidator.java`（SQL 只读校验——补强现有 SqlValidator 的注释剥离/字符串剥离/多语句检测，而非重建）
 - `security/PermissionInterceptor.java`（权限隔离 + 脱敏）
 - `agent/nodes/EvidenceRecallNode.java` + `SchemeReCallNode.java`（双通道 RAG 思路）
 

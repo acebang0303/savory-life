@@ -81,11 +81,11 @@ function scrollToBottom() {
 
 <style scoped>
 .chat-container { display: flex; flex-direction: column; height: 500px; }
-.chat-messages { flex: 1; overflow-y: auto; padding: 16px; background: #f5f7fa; border-radius: 8px; margin-bottom: 12px; }
+.chat-messages { flex: 1; overflow-y: auto; padding: 16px; background: var(--savory-bg-page); border-radius: 8px; margin-bottom: 12px; }
 .msg { margin-bottom: 12px; display: flex; }
 .msg-user { justify-content: flex-end; }
 .msg-content { max-width: 75%; padding: 10px 16px; border-radius: 12px; font-size: 14px; line-height: 1.6; white-space: pre-wrap; }
-.msg-user .msg-content { background: #409eff; color: #fff; border-bottom-right-radius: 4px; }
-.msg-ai .msg-content { background: #fff; border: 1px solid #e4e7ed; border-bottom-left-radius: 4px; }
+.msg-user .msg-content { background: var(--savory-primary); color: #fff; border-bottom-right-radius: 4px; }
+.msg-ai .msg-content { background: #fff; border: 1px solid var(--savory-border); border-bottom-left-radius: 4px; }
 .quick-questions { margin-top: 8px; }
 </style>

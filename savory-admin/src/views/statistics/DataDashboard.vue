@@ -5,21 +5,21 @@
       <div class="cell">
         <div class="card-title">今日概览</div>
         <div class="stat-row">
-          <el-statistic title="今日订单数" :value="stats.todayOrders" :value-style="{ color: '#fff', fontSize: '26px', fontWeight: 700 }" />
-          <el-statistic title="今日营收" :value="'¥' + stats.todayRevenue" :value-style="{ color: '#fff', fontSize: '26px', fontWeight: 700 }" />
-          <el-statistic title="待处理订单" :value="stats.pendingOrders" :value-style="{ color: '#f56c6c', fontSize: '26px', fontWeight: 700 }" />
-          <el-statistic title="已完成订单" :value="stats.completedOrders" :value-style="{ color: '#67c23a', fontSize: '26px', fontWeight: 700 }" />
+          <el-statistic title="今日订单数" :value="stats.todayOrders" />
+          <el-statistic title="今日营收" :value="'¥' + stats.todayRevenue" />
+          <el-statistic title="待处理订单" :value="stats.pendingOrders" :value-style="accent.warning" />
+          <el-statistic title="已完成订单" :value="stats.completedOrders" :value-style="accent.success" />
         </div>
       </div>
 
       <div class="cell">
         <div class="card-title">订单趋势</div>
-        <v-chart :option="lineOption" style="height:300px" />
+        <v-chart :option="lineOption" style="height: 300px" />
       </div>
 
       <div class="cell">
         <div class="card-title">订单状态</div>
-        <v-chart :option="pieOption" style="height:300px" />
+        <v-chart :option="pieOption" style="height: 300px" />
       </div>
     </div>
 
@@ -27,21 +27,21 @@
     <div class="grid">
       <div class="cell">
         <div class="card-title">商户排行</div>
-        <v-chart :option="barOption" style="height:300px" />
+        <v-chart :option="barOption" style="height: 300px" />
       </div>
 
       <div class="cell">
         <div class="card-title">菜品排行</div>
-        <v-chart :option="hBarOption" style="height:300px" />
+        <v-chart :option="hBarOption" style="height: 300px" />
       </div>
 
       <div class="cell">
         <div class="card-title">社区数据</div>
         <div class="stat-row">
-          <el-statistic title="笔记总数" :value="4" :value-style="{ color: '#fff', fontSize: '26px', fontWeight: 700 }" />
-          <el-statistic title="评价总数" :value="5" :value-style="{ color: '#fff', fontSize: '26px', fontWeight: 700 }" />
-          <el-statistic title="用户总数" :value="5" :value-style="{ color: '#fff', fontSize: '26px', fontWeight: 700 }" />
-          <el-statistic title="今日新增" :value="2" :value-style="{ color: '#67c23a', fontSize: '26px', fontWeight: 700 }" />
+          <el-statistic title="笔记总数" :value="4" />
+          <el-statistic title="评价总数" :value="5" />
+          <el-statistic title="用户总数" :value="5" />
+          <el-statistic title="今日新增" :value="2" :value-style="accent.success" />
         </div>
       </div>
     </div>
@@ -54,6 +54,24 @@ import VChart from 'vue-echarts'
 import * as echarts from 'echarts'
 import { getOrderStatistics } from '@/api'
 
+const C = {
+  primary: '#FF7A3D',
+  amber: '#E8A13C',
+  green: '#4C9A6A',
+  blue: '#5B8DB8',
+  red: '#E05B4A',
+  grey: '#9C8A7C',
+  text: '#33261E',
+  label: '#9C8A7C',
+  axis: '#F0E4D6',
+  split: '#F5ECE0'
+}
+
+const accent = {
+  warning: { color: C.amber, fontSize: '24px', fontWeight: 700 },
+  success: { color: C.green, fontSize: '24px', fontWeight: 700 }
+}
+
 const stats = reactive({
   todayOrders: 0,
   todayRevenue: '0.00',
@@ -61,28 +79,32 @@ const stats = reactive({
   completedOrders: 0
 })
 
-// ============ 订单趋势 - line chart ============
+const tooltipStyle = {
+  backgroundColor: '#fff',
+  borderColor: '#F0E4D6',
+  textStyle: { color: '#33261E' }
+}
+
+// ============ 订单趋势 - line ============
 const days = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
 const orderData = Array.from({ length: 7 }, () => Math.floor(Math.random() * 61) + 20)
 
 const lineOption = ref({
-  tooltip: { trigger: 'axis' },
-  legend: {
-    textStyle: { color: '#8899aa' },
-    top: 0
-  },
+  tooltip: { trigger: 'axis', ...tooltipStyle },
+  legend: { textStyle: { color: C.text }, top: 0 },
   grid: { left: 10, right: 20, top: 40, bottom: 10, containLabel: true },
   xAxis: {
     type: 'category',
     data: days,
-    axisLine: { lineStyle: { color: '#334455' } },
-    axisLabel: { color: '#8899aa' }
+    boundaryGap: false,
+    axisLine: { lineStyle: { color: C.axis } },
+    axisTick: { show: false },
+    axisLabel: { color: C.label }
   },
   yAxis: {
     type: 'value',
-    axisLine: { lineStyle: { color: '#334455' } },
-    axisLabel: { color: '#8899aa' },
-    splitLine: { lineStyle: { color: '#1a2f44' } }
+    axisLabel: { color: C.label },
+    splitLine: { lineStyle: { color: C.split } }
   },
   series: [
     {
@@ -90,22 +112,23 @@ const lineOption = ref({
       type: 'line',
       smooth: true,
       symbol: 'circle',
-      symbolSize: 8,
+      symbolSize: 7,
       data: orderData,
-      itemStyle: { color: '#409eff' },
-      lineStyle: { width: 3 }
+      itemStyle: { color: C.primary },
+      lineStyle: { width: 3, color: C.primary },
+      areaStyle: { color: 'rgba(255, 122, 61, 0.12)' }
     }
   ]
 })
 
-// ============ 订单状态 - pie chart ============
+// ============ 订单状态 - pie ============
 const pieOption = ref({
-  tooltip: { trigger: 'item', formatter: '{b}: {c} ({d}%)' },
+  tooltip: { trigger: 'item', formatter: '{b}: {c} ({d}%)', ...tooltipStyle },
   legend: {
     orient: 'vertical',
     right: 10,
     top: 'center',
-    textStyle: { color: '#8899aa' }
+    textStyle: { color: C.text }
   },
   series: [
     {
@@ -117,79 +140,77 @@ const pieOption = ref({
       itemStyle: { borderRadius: 4 },
       label: { show: false },
       emphasis: {
-        label: { show: true, fontSize: 16, fontWeight: 'bold', color: '#fff' }
+        label: { show: true, fontSize: 16, fontWeight: 'bold', color: C.text }
       },
       data: [
-        { value: 5, name: '待支付', itemStyle: { color: '#e6a23c' } },
-        { value: 3, name: '待接单', itemStyle: { color: '#409eff' } },
-        { value: 4, name: '备货中', itemStyle: { color: '#909399' } },
-        { value: 35, name: '已完成', itemStyle: { color: '#67c23a' } },
-        { value: 8, name: '已取消', itemStyle: { color: '#f56c6c' } }
+        { value: 5, name: '待支付', itemStyle: { color: C.amber } },
+        { value: 3, name: '待接单', itemStyle: { color: C.blue } },
+        { value: 4, name: '备货中', itemStyle: { color: C.grey } },
+        { value: 35, name: '已完成', itemStyle: { color: C.green } },
+        { value: 8, name: '已取消', itemStyle: { color: C.red } }
       ]
     }
   ]
 })
 
-// ============ 商户排行 - bar chart ============
+// ============ 商户排行 - bar ============
 const barOption = ref({
-  tooltip: { trigger: 'axis' },
+  tooltip: { trigger: 'axis', ...tooltipStyle },
   grid: { left: 10, right: 20, top: 20, bottom: 10, containLabel: true },
   xAxis: {
     type: 'category',
     data: ['张记面馆', '老王烧烤', '蜀味川菜', '外婆家'],
-    axisLabel: { color: '#8899aa', rotate: 15 },
-    axisLine: { lineStyle: { color: '#334455' } }
+    axisLabel: { color: C.label, rotate: 15 },
+    axisLine: { lineStyle: { color: C.axis } },
+    axisTick: { show: false }
   },
   yAxis: {
     type: 'value',
-    axisLabel: { color: '#8899aa' },
-    splitLine: { lineStyle: { color: '#1a2f44' } }
+    axisLabel: { color: C.label },
+    splitLine: { lineStyle: { color: C.split } }
   },
   series: [
     {
       type: 'bar',
       barWidth: 36,
-      data: [
-        { value: 320, itemStyle: { color: '#409eff' } },
-        { value: 280, itemStyle: { color: '#67c23a' } },
-        { value: 210, itemStyle: { color: '#e6a23c' } },
-        { value: 180, itemStyle: { color: '#f56c6c' } }
-      ],
-      label: { show: true, position: 'top', color: '#8899aa' }
+      data: [320, 280, 210, 180],
+      itemStyle: {
+        color: C.primary,
+        borderRadius: [6, 6, 0, 0]
+      },
+      label: { show: true, position: 'top', color: C.label }
     }
   ]
 })
 
-// ============ 菜品排行 - horizontal bar chart ============
+// ============ 菜品排行 - horizontal bar ============
 const dishNames = ['青岛啤酒', '羊肉串', '蛋炒饭', '麻婆豆腐', '红烧牛肉面']
 const dishValues = [4500, 3200, 2300, 1560, 1523]
 
 const hBarOption = ref({
-  tooltip: { trigger: 'axis' },
+  tooltip: { trigger: 'axis', ...tooltipStyle },
   grid: { left: 10, right: 40, top: 10, bottom: 10, containLabel: true },
   xAxis: {
     type: 'value',
-    axisLabel: { color: '#8899aa' },
-    splitLine: { lineStyle: { color: '#1a2f44' } }
+    axisLabel: { color: C.label },
+    splitLine: { lineStyle: { color: C.split } }
   },
   yAxis: {
     type: 'category',
     data: dishNames,
-    axisLabel: { color: '#8899aa' },
-    axisLine: { lineStyle: { color: '#334455' } },
+    axisLabel: { color: C.label },
+    axisLine: { lineStyle: { color: C.axis } },
     inverse: true
   },
   series: [
     {
       type: 'bar',
       barWidth: 18,
-      data: dishValues.map((v, i) => ({
+      data: dishValues.map((v) => ({
         value: v,
-        itemStyle: {
-          color: ['#f56c6c', '#e6a23c', '#67c23a', '#409eff', '#909399'][i]
-        }
+        itemStyle: { color: C.primary, borderRadius: [0, 6, 6, 0] }
       })),
-      label: { show: true, position: 'right', color: '#8899aa' }
+      label: { show: true, position: 'right', color: C.label }
     }
   ]
 })
@@ -208,9 +229,8 @@ onMounted(async () => {
 
 <style scoped>
 .dashboard {
-  background: #0a1628;
-  min-height: 100vh;
-  padding: 20px;
+  display: flex;
+  flex-direction: column;
 }
 
 .grid {
@@ -221,31 +241,32 @@ onMounted(async () => {
 }
 
 .cell {
-  background: #111d32;
-  border: 1px solid #1e3550;
-  border-radius: 8px;
+  background: var(--savory-bg-card);
+  border: 1px solid var(--savory-border);
+  border-radius: 14px;
   padding: 16px 20px;
+  box-shadow: var(--savory-shadow-sm);
 }
 
 .card-title {
-  color: #fff;
-  font-size: 16px;
+  color: var(--savory-text-primary);
+  font-size: 15px;
   font-weight: 600;
   margin-bottom: 12px;
-  padding-bottom: 10px;
-  border-bottom: 1px solid #1e3550;
-  position: relative;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--savory-border);
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .card-title::before {
   content: '';
-  position: absolute;
-  left: 0;
-  bottom: -1px;
-  width: 40px;
-  height: 2px;
-  background: #409eff;
-  border-radius: 1px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, var(--savory-glow), var(--savory-primary));
+  box-shadow: 0 1px 3px rgba(255, 122, 61, 0.35);
 }
 
 .stat-row {
@@ -255,12 +276,21 @@ onMounted(async () => {
 }
 
 .stat-row :deep(.el-statistic__head) {
-  color: #667a94;
+  color: var(--savory-text-secondary);
   font-size: 13px;
   margin-bottom: 4px;
 }
 
 .stat-row :deep(.el-statistic__content) {
-  color: #fff;
+  color: var(--savory-text-primary);
+  font-size: 24px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 1100px) {
+  .grid {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

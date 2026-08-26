@@ -52,4 +52,9 @@ public interface SeckillService {
      * 回滚 Redis 预扣库存与用户限购计数
      */
     void revertRedisStock(Long activityId, Long dishId, Long userId, int quantity);
+
+    /**
+     * 秒杀订单超时未支付：回补 DB 库存 + Redis 库存 + 用户限购计数
+     */
+    void restoreSeckillOnTimeout(Long activityId, Long userId);
 }

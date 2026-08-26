@@ -1,6 +1,7 @@
 package com.savory.trade.task;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.savory.market.service.SeckillService;
 import com.savory.pojo.entity.Orders;
 import com.savory.trade.mapper.OrderMapper;
 import lombok.extern.slf4j.Slf4j;
@@ -23,6 +24,9 @@ public class OrderTask {
 
     @Autowired
     private OrderMapper orderMapper;
+
+    @Autowired
+    private SeckillService seckillService;
 
     /**
      * 处理超时未支付订单
@@ -49,7 +53,7 @@ public class OrderTask {
 
             //3、回补秒杀库存（如果是秒杀订单）
             if (order.getIsSeckill() != null && order.getIsSeckill() == 1) {
-                //TODO: 回补Redis秒杀库存 + 移除用户秒杀记录(SREM)
+                seckillService.restoreSeckillOnTimeout(order.getSeckillActivityId(), order.getUserId());
             }
 
             log.info("订单支付超时自动取消: orderId={}, orderNumber={}", order.getId(), order.getNumber());

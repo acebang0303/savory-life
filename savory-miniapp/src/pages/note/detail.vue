@@ -112,7 +112,7 @@ const sendComment = () => {
 .actions { display: flex; gap: 32rpx; padding: 16rpx 0; border-top: 1rpx solid #f0f0f0; border-bottom: 1rpx solid #f0f0f0; margin-bottom: 24rpx; font-size: 26rpx; }
 .section-title { font-size: 30rpx; font-weight: bold; display: block; margin-bottom: 16rpx; }
 .comment { padding: 16rpx 0; border-bottom: 1rpx solid #f5f5f5; }
-.comment-user { color: #1890FF; font-size: 26rpx; }
+.comment-user { color: $primary-color; font-size: 26rpx; }
 .comment-text { font-size: 28rpx; }
 .comment-time { font-size: 22rpx; color: #ccc; display: block; margin-top: 4rpx; }
 .comment-input { position: fixed; bottom: 0; left: 0; right: 0; padding: 16rpx 24rpx; background: #fff; border-top: 1rpx solid #f0f0f0; padding-bottom: calc(16rpx + env(safe-area-inset-bottom)); }

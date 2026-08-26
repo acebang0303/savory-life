@@ -97,6 +97,11 @@ public class NoteLikeStore {
         }
     }
 
+    /** 启动预热：以 DB like_count 为权威基线覆盖 Redis 计数（setIfAbsent 不适用，残留增量会污染全量）。 */
+    public void overwriteCount(long noteId, long count) {
+        redis.opsForHash().put(KEY_COUNT, String.valueOf(noteId), String.valueOf(count));
+    }
+
     /** 查询用户是否已赞（SISMEMBER）。 */
     public boolean hasLiked(long noteId, long userId) {
         Boolean member = redis.opsForSet().isMember(usersKey(noteId), String.valueOf(userId));

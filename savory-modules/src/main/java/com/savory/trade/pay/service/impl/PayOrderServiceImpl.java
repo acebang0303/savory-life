@@ -135,6 +135,12 @@ public class PayOrderServiceImpl implements PayOrderService {
                 new LambdaQueryWrapper<PayChannel>().eq(PayChannel::getChannelCode, channelCode));
         PayResult result = handler.unifiedOrder(payOrder, channel);
 
+        // 渠道返回的支付参数（如微信 JSAPI prepay）落库，便于前端唤起支付/排查
+        if (result.payParams() != null) {
+            payOrder.setPayParams(result.payParams());
+            payOrderMapper.updateById(payOrder);
+        }
+
         // 余额/mock 渠道下单即同步入账
         if (result.paid()) {
             markOrderPaid(payOrder, result.tradeNo(), result.buyerId());

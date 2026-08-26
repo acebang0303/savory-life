@@ -21,10 +21,10 @@ onLaunch(() => {
 @import '@/uni.scss';
 
 page {
-  background-color: #f8f8f8;
-  font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  background-color: #FFF8F1;
+  font-family: 'PingFang SC', 'HarmonyOS Sans SC', -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Helvetica, Arial, sans-serif;
   font-size: 28rpx;
-  color: #333;
+  color: #33261E;
   line-height: 1.6;
 }
 

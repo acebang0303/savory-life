@@ -1,78 +1,86 @@
 <template>
-  <el-container class="layout-container">
+  <div class="layout">
     <!-- 侧边栏 -->
-    <el-aside width="220px" class="aside">
-      <div class="logo">
-        <el-icon :size="24"><Food /></el-icon>
-        <span>知味生活</span>
+    <aside class="sidebar" :class="{ collapsed }">
+      <div class="brand">
+        <div class="brand-mark">知</div>
+        <div v-show="!collapsed" class="brand-text">
+          <div class="brand-name">知味生活</div>
+          <div class="brand-sub">SavoryLife Admin</div>
+        </div>
       </div>
-      <el-menu :default-active="activeMenu" router background-color="#304156" text-color="#bfcbd9"
-        active-text-color="#409EFF">
-        <el-menu-item index="/dashboard">
-          <el-icon><Monitor /></el-icon>
-          <span>工作台</span>
-        </el-menu-item>
-        <el-menu-item index="/order">
-          <el-icon><Document /></el-icon>
-          <span>订单管理</span>
-        </el-menu-item>
-        <el-menu-item index="/merchant">
-          <el-icon><Shop /></el-icon>
-          <span>商户管理</span>
-        </el-menu-item>
-        <el-menu-item index="/category">
-          <el-icon><Menu /></el-icon>
-          <span>分类管理</span>
-        </el-menu-item>
-        <el-menu-item index="/dish">
-          <el-icon><Food /></el-icon>
-          <span>菜品管理</span>
-        </el-menu-item>
-        <el-menu-item index="/setmeal">
-          <el-icon><SetUp /></el-icon>
-          <span>套餐管理</span>
-        </el-menu-item>
-        <el-menu-item index="/coupon">
-          <el-icon><Ticket /></el-icon>
-          <span>优惠券管理</span>
-        </el-menu-item>
-        <el-menu-item index="/seckill">
-          <el-icon><Timer /></el-icon>
-          <span>秒杀管理</span>
-        </el-menu-item>
-        <el-menu-item index="/content">
-          <el-icon><Checked /></el-icon>
-          <span>内容审核</span>
-        </el-menu-item>
-        <el-menu-item index="/statistics">
-          <el-icon><DataAnalysis /></el-icon>
-          <span>数据统计</span>
-        </el-menu-item>
-        <el-menu-item index="/employee">
-          <el-icon><UserFilled /></el-icon>
-          <span>员工管理</span>
-        </el-menu-item>
-      </el-menu>
-    </el-aside>
+
+      <nav class="menu">
+        <div v-for="group in menuGroups" :key="group.title" class="menu-group">
+          <div v-show="!collapsed" class="group-title">{{ group.title }}</div>
+          <router-link
+            v-for="item in group.items"
+            :key="item.path"
+            :to="item.path"
+            class="menu-item"
+            :class="{ active: route.path === item.path }"
+            :title="item.title"
+          >
+            <el-icon :size="18"><component :is="item.icon" /></el-icon>
+            <span v-show="!collapsed" class="label">{{ item.title }}</span>
+          </router-link>
+        </div>
+      </nav>
+
+      <div v-show="!collapsed" class="sidebar-footer">
+        <button class="collapse-btn" type="button" @click="toggleCollapse">
+          <el-icon :size="16"><Fold /></el-icon>
+          <span>收起菜单</span>
+        </button>
+      </div>
+    </aside>
 
     <!-- 主区域 -->
-    <el-container>
-      <el-header class="header">
-        <span class="header-title">{{ $route.meta.title }}</span>
-        <div class="header-right">
-          <span class="user-name">{{ userStore.name }}</span>
-          <el-button text @click="handleLogout">退出</el-button>
+    <div class="main">
+      <header class="topbar">
+        <div class="topbar-left">
+          <button class="icon-btn" type="button" :title="collapsed ? '展开菜单' : '收起菜单'" @click="toggleCollapse">
+            <el-icon :size="18"><component :is="collapsed ? 'Expand' : 'Fold'" /></el-icon>
+          </button>
+          <h1 class="page-title">{{ route.meta.title }}</h1>
         </div>
-      </el-header>
-      <el-main class="main">
+
+        <div class="topbar-right">
+          <el-popover placement="bottom" :width="220" trigger="click">
+            <template #reference>
+              <button class="icon-btn" type="button" title="通知">
+                <el-badge is-dot>
+                  <el-icon :size="18"><Bell /></el-icon>
+                </el-badge>
+              </button>
+            </template>
+            <div class="notice-empty">暂无新通知</div>
+          </el-popover>
+
+          <el-dropdown trigger="click" @command="handleCommand">
+            <div class="user">
+              <div class="avatar">{{ avatarChar }}</div>
+              <span class="user-name">{{ userStore.name || '管理员' }}</span>
+              <el-icon :size="14"><ArrowDown /></el-icon>
+            </div>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item command="logout">退出登录</el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
+        </div>
+      </header>
+
+      <main class="content">
         <router-view />
-      </el-main>
-    </el-container>
-  </el-container>
+      </main>
+    </div>
+  </div>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '@/store/user'
 import { ElMessage } from 'element-plus'
@@ -81,55 +89,287 @@ const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
 
-const activeMenu = computed(() => route.path)
+const collapsed = ref(localStorage.getItem('sidebar-collapsed') === '1')
+const avatarChar = computed(() => (userStore.name || '管').slice(0, 1))
 
-async function handleLogout() {
-  await userStore.logout()
-  ElMessage.success('已退出登录')
-  router.push('/login')
+const menuGroups = [
+  {
+    title: '概览',
+    items: [{ path: '/dashboard', title: '工作台', icon: 'Monitor' }]
+  },
+  {
+    title: '交易',
+    items: [{ path: '/order', title: '订单管理', icon: 'Document' }]
+  },
+  {
+    title: '商户',
+    items: [
+      { path: '/merchant', title: '商户管理', icon: 'Shop' },
+      { path: '/category', title: '分类管理', icon: 'Menu' },
+      { path: '/dish', title: '菜品管理', icon: 'Food' },
+      { path: '/setmeal', title: '套餐管理', icon: 'SetUp' }
+    ]
+  },
+  {
+    title: '营销',
+    items: [
+      { path: '/coupon', title: '优惠券管理', icon: 'Ticket' },
+      { path: '/seckill', title: '秒杀管理', icon: 'Timer' }
+    ]
+  },
+  {
+    title: '社区',
+    items: [{ path: '/content', title: '内容审核', icon: 'Checked' }]
+  },
+  {
+    title: '系统',
+    items: [
+      { path: '/statistics', title: '数据统计', icon: 'DataAnalysis' },
+      { path: '/employee', title: '员工管理', icon: 'UserFilled' }
+    ]
+  }
+]
+
+function toggleCollapse() {
+  collapsed.value = !collapsed.value
+  localStorage.setItem('sidebar-collapsed', collapsed.value ? '1' : '0')
+}
+
+async function handleCommand(cmd: string) {
+  if (cmd === 'logout') {
+    await userStore.logout()
+    ElMessage.success('已退出登录')
+    router.push('/login')
+  }
 }
 </script>
 
 <style scoped>
-.layout-container {
+.layout {
+  display: flex;
   height: 100vh;
+  overflow: hidden;
 }
-.aside {
-  background-color: #304156;
-  overflow-y: auto;
+
+/* ---------- 侧边栏 ---------- */
+.sidebar {
+  width: 224px;
+  flex-shrink: 0;
+  background: var(--savory-bg-sidebar);
+  border-right: 1px solid var(--savory-border);
+  display: flex;
+  flex-direction: column;
+  transition: width 0.2s ease;
+  overflow: hidden;
 }
-.logo {
+.sidebar.collapsed {
+  width: 64px;
+}
+
+.brand {
   height: 60px;
   display: flex;
   align-items: center;
-  justify-content: center;
-  color: #fff;
-  font-size: 18px;
-  gap: 8px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  gap: 10px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--savory-border);
+  flex-shrink: 0;
 }
-.header {
+.brand-mark {
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  border-radius: 10px;
+  background: radial-gradient(circle at 32% 30%, var(--savory-glow), var(--savory-primary));
+  color: #fff;
+  font-weight: 700;
+  font-size: 17px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 6px rgba(255, 122, 61, 0.32);
+}
+.brand-text {
+  line-height: 1.25;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.brand-name {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--savory-text-primary);
+}
+.brand-sub {
+  font-size: 11px;
+  color: var(--savory-text-secondary);
+}
+
+.menu {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 10px;
+}
+.menu-group {
+  margin-bottom: 6px;
+}
+.group-title {
+  padding: 14px 12px 6px;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: var(--savory-text-placeholder);
+}
+.menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 40px;
+  padding: 0 12px;
+  margin-bottom: 2px;
+  border-radius: 10px;
+  color: var(--savory-text-regular);
+  text-decoration: none;
+  font-size: 14px;
+  transition: background 0.15s, color 0.15s;
+}
+.menu-item .el-icon {
+  color: var(--savory-text-secondary);
+  transition: color 0.15s;
+}
+.menu-item:hover {
+  background: #f7eee4;
+  color: var(--savory-text-primary);
+}
+.menu-item:hover .el-icon {
+  color: var(--savory-primary);
+}
+.menu-item.active {
+  background: var(--savory-primary-light);
+  color: var(--savory-primary-active);
+  font-weight: 600;
+}
+.menu-item.active .el-icon {
+  color: var(--savory-primary);
+}
+
+.sidebar.collapsed .menu-item {
+  justify-content: center;
+  padding: 0;
+}
+.sidebar.collapsed .brand {
+  justify-content: center;
+  padding: 0;
+}
+
+.sidebar-footer {
+  padding: 10px;
+  border-top: 1px solid var(--savory-border);
+  flex-shrink: 0;
+}
+.collapse-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 12px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--savory-text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.collapse-btn:hover {
+  background: #f7eee4;
+  color: var(--savory-primary);
+}
+
+/* ---------- 主区域 ---------- */
+.main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.topbar {
+  height: 60px;
+  flex-shrink: 0;
+  background: #fff;
+  border-bottom: 1px solid var(--savory-border);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: #fff;
-  border-bottom: 1px solid #e6e6e6;
-  padding: 0 24px;
+  padding: 0 20px;
 }
-.header-title {
-  font-size: 16px;
-  font-weight: 600;
-}
-.header-right {
+.topbar-left,
+.topbar-right {
   display: flex;
   align-items: center;
   gap: 12px;
 }
-.user-name {
-  color: #606266;
+.page-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--savory-text-primary);
+  margin: 0;
 }
-.main {
-  background: #f0f2f5;
-  min-height: calc(100vh - 60px);
+.icon-btn {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: var(--savory-text-regular);
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, color 0.15s;
+}
+.icon-btn:hover {
+  background: #f7eee4;
+  color: var(--savory-primary);
+}
+.notice-empty {
+  color: var(--savory-text-secondary);
+  font-size: 13px;
+  text-align: center;
+  padding: 12px 0;
+}
+.user {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 8px;
+  transition: background 0.15s;
+}
+.user:hover {
+  background: #f7eee4;
+}
+.avatar {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 32% 30%, var(--savory-glow), var(--savory-primary));
+  color: #fff;
+  font-weight: 600;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.user-name {
+  font-size: 14px;
+  color: var(--savory-text-regular);
+}
+
+.content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px;
+  background: var(--savory-bg-page);
 }
 </style>

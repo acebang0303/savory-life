@@ -103,9 +103,9 @@ const seckillList = ref([])
 const aiDishes = ref([])
 
 const banners = ref([
-  { id: 1, title: '深夜食堂', subtitle: '暖心夜宵限时特惠', color: 'linear-gradient(135deg, #FF6B35, #FF8C60)' },
-  { id: 2, title: '周末约会', subtitle: 'AI为你规划完美约会路线', color: 'linear-gradient(135deg, #722ED1, #B37FEB)' },
-  { id: 3, title: '新人专享', subtitle: '首单立减 ¥15', color: 'linear-gradient(135deg, #13C2C2, #36CFC9)' }
+  { id: 1, title: '深夜食堂', subtitle: '暖心夜宵限时特惠', color: 'linear-gradient(135deg, #FF7A3D, #F06A2E)' },
+  { id: 2, title: '周末约会', subtitle: 'AI为你规划完美约会路线', color: 'linear-gradient(135deg, #FFB98A, #FF7A3D)' },
+  { id: 3, title: '新人专享', subtitle: '首单立减 ¥15', color: 'linear-gradient(135deg, #E8A13C, #FF9A5A)' }
 ])
 
 const entries = ref([
@@ -184,7 +184,7 @@ onMounted(async () => {
 .search-placeholder { color: #999; font-size: 26rpx; }
 .header-right { margin-left: 16rpx; }
 .ai-badge {
-  background: linear-gradient(135deg, #722ED1, #B37FEB);
+  background: linear-gradient(135deg, $glow-color, $primary-color);
   color: #fff; padding: 4rpx 12rpx; border-radius: 8rpx;
   font-size: 22rpx; font-weight: bold;
 }
@@ -229,7 +229,7 @@ onMounted(async () => {
 .shop-name { font-size: 30rpx; font-weight: 600; display: block; margin-bottom: 6rpx; }
 .shop-tags { display: flex; gap: 12rpx; margin-bottom: 6rpx; }
 .shop-tag { font-size: 22rpx; color: #666; background: #f5f5f5; padding: 2rpx 8rpx; border-radius: 4rpx; }
-.shop-tag.star { color: #FAAD14; }
+.shop-tag.star { color: $warning-color; }
 .shop-desc { font-size: 24rpx; color: #999; @extend .text-ellipsis; }
 .shop-arrow { font-size: 32rpx; color: #ccc; }
 .dish-scroll { white-space: nowrap; }
@@ -240,7 +240,7 @@ onMounted(async () => {
 }
 .dish-img { width: 220rpx; height: 160rpx; background: #f0f0f0; }
 .dish-name { font-size: 26rpx; font-weight: 600; padding: 8rpx 12rpx 0; display: block; }
-.dish-reason { font-size: 20rpx; color: #FAAD14; padding: 4rpx 12rpx; display: block; }
+.dish-reason { font-size: 20rpx; color: $warning-color; padding: 4rpx 12rpx; display: block; }
 .dish-price { font-size: 28rpx; font-weight: bold; color: $primary-color; padding: 0 12rpx 12rpx; display: block; }
 .safe-bottom { height: calc(120rpx + env(safe-area-inset-bottom)); }
 </style>

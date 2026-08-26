@@ -21,7 +21,7 @@ spring:
       api-key: ${QIANWEN_API_KEY:}
       model: qwen3.6-flash
     openai:
-      base-url: ${KIMI_BASE_URL:https://api.moonshot.cn/v1}
+      base-url: ${KIMI_BASE_URL:https://api.moonshot.cn}
       api-key: ${KIMI_API_KEY:}
       chat:
         options:

@@ -2,18 +2,21 @@ package com.savory.trade.service.impl;
 
 import cn.hutool.core.util.IdUtil;
 import com.baomidou.dynamic.datasource.annotation.DS;
+import com.baomidou.dynamic.datasource.annotation.DSTransactional;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.savory.common.context.BaseContext;
 import com.savory.common.exception.OrderBusinessException;
 import com.savory.common.result.PageResult;
 import com.savory.market.seckill.mq.SeckillMessage;
+import com.savory.market.service.SeckillService;
 import com.savory.merchant.mapper.DishMapper;
 import com.savory.pojo.entity.*;
 import com.savory.trade.dto.OrderSubmitDTO;
 import com.savory.trade.mapper.OrderDetailMapper;
 import com.savory.trade.mapper.OrderMapper;
 import com.savory.trade.mq.NotifyMessageProducer;
+import com.savory.trade.mq.OrderMessageProducer;
 import com.savory.trade.pay.core.model.RefundResult;
 import com.savory.trade.pay.service.PayOrderService;
 import com.savory.trade.service.OrderService;
@@ -68,6 +71,12 @@ public class OrderServiceImpl implements OrderService {
     @Autowired
     private NotifyMessageProducer notifyMessageProducer;
 
+    @Autowired
+    private OrderMessageProducer orderMessageProducer;
+
+    @Autowired
+    private SeckillService seckillService;
+
     /**
      * 用户提交订单（核心流程）
      *
@@ -75,7 +84,7 @@ public class OrderServiceImpl implements OrderService {
      * @return
      */
     @Override
-    @Transactional
+    @DSTransactional
     public Orders submit(OrderSubmitDTO orderSubmitDTO) {
         Long userId = BaseContext.getCurrentId();
 
@@ -182,15 +191,10 @@ public class OrderServiceImpl implements OrderService {
     }
 
     /**
-     * 发送RocketMQ延迟消息检查支付状态
+     * 发送RocketMQ延迟消息检查支付状态（延迟20分钟，RocketMQ内置档位）
      */
     private void sendDelayCheckMessage(Long orderId) {
-        //TODO: 集成RocketMQ原生SDK发送延迟消息
-        // 生产环境实现：
-        // Message message = new Message("ORDER_DELAY_TOPIC", String.valueOf(orderId).getBytes());
-        // message.setDelayTimeLevel(3); // RocketMQ延迟级别3 = 15分钟
-        // rocketMQProducer.send(message);
-        log.info("发送订单支付延迟检查消息（RocketMQ），orderId: {}", orderId);
+        orderMessageProducer.sendOrderDelayCheck(orderId);
     }
 
     @Override
@@ -342,9 +346,10 @@ public class OrderServiceImpl implements OrderService {
     }
 
     /**
-     * 定时任务：处理超时未支付订单（由延迟消息消费者调用）
+     * 处理超时未支付订单（延迟消息消费触发）。
+     * 不用事务：秒杀库存回补需跨 market 库（@DS("market")），类级 @DS("trade") + @Transactional 会把连接绑定 trade 导致切换失效。
      */
-    @Transactional
+    @Override
     public void handleTimeoutOrder(Long orderId) {
         //1、查询订单当前状态
         Orders order = orderMapper.selectById(orderId);
@@ -359,12 +364,15 @@ public class OrderServiceImpl implements OrderService {
         orderMapper.updateById(order);
         log.info("超时订单已自动取消，orderId: {}", orderId);
 
-        //3、TODO: 如果使用了优惠券，需释放优惠券
-        //4、TODO: 如果是秒杀订单，需回补Redis库存
+        //3、秒杀订单回补库存（DB + Redis + 用户限购）
+        if (order.getIsSeckill() != null && order.getIsSeckill() == 1) {
+            seckillService.restoreSeckillOnTimeout(order.getSeckillActivityId(), order.getUserId());
+        }
+        //4、TODO: 如果使用了优惠券，需释放优惠券
     }
 
     @Override
-    @Transactional
+    // 不用事务：类级 @DS("trade") 会让事务内连接绑定 trade，dishMapper(merchant) 切换失效；单条 insert 无需原子性
     public Long createSeckillOrder(SeckillMessage message) {
         //1、从菜品查 merchantId（秒杀订单必须关联商户）
         Dish dish = dishMapper.selectById(message.dishId());
@@ -393,6 +401,9 @@ public class OrderServiceImpl implements OrderService {
         } catch (DuplicateKeyException e) {
             throw new OrderBusinessException("重复秒杀");
         }
+
+        //4、秒杀订单同样发送延迟消息，超时未支付回补库存
+        sendDelayCheckMessage(order.getId());
         return order.getId();
     }
 }

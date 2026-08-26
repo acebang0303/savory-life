@@ -132,7 +132,7 @@ onMounted(async () => {
 .profile-page { min-height: 100vh; background: $bg-color; padding-bottom: 80rpx; }
 .user-header {
   display: flex; align-items: center; padding: 48rpx 32rpx;
-  background: linear-gradient(135deg, #FF6B35, #FF8C60);
+  background: linear-gradient(135deg, $primary-color, $primary-light);
 }
 .avatar { width: 100rpx; height: 100rpx; border-radius: 50%; border: 4rpx solid rgba(255,255,255,0.3); margin-right: 20rpx; background: #f0f0f0; }
 .user-text { flex: 1; }

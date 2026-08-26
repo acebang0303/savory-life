@@ -8,6 +8,7 @@ import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.embedding.EmbeddingModel;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
@@ -38,6 +39,9 @@ public class RecommendEngine {
     @Autowired
     @Qualifier("bizJdbcTemplate")
     private JdbcTemplate bizJdbcTemplate;
+
+    @Value("${agent.recommend-model:deepseek}")
+    private String recommendModel;
 
     /**
      * AI个性化菜品推荐
@@ -165,8 +169,8 @@ public class RecommendEngine {
                 只返回JSON，不要其他内容。
                 """, userId, topN, candidates.toString());
 
-        //2、调用LLM（默认 deepseek）
-        ChatClient client = registry.get("deepseek");
+        //2、调用LLM（模型由 agent.recommend-model 配置，默认 deepseek）
+        ChatClient client = registry.get(recommendModel);
         String response = client.prompt().user(prompt).call().content();
 
         log.info("LLM重排序完成，userId: {}, response长度: {}", userId,

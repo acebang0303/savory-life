@@ -78,11 +78,11 @@
     "navigationBarTextStyle": "black",
     "navigationBarTitleText": "知味生活",
     "navigationBarBackgroundColor": "#FFFFFF",
-    "backgroundColor": "#F8F8F8"
+    "backgroundColor": "#FFF8F1"
   },
   "tabBar": {
-    "color": "#999999",
-    "selectedColor": "#FF6B35",
+    "color": "#9C8A7C",
+    "selectedColor": "#FF7A3D",
     "backgroundColor": "#FFFFFF",
     "borderStyle": "black",
     "list": [

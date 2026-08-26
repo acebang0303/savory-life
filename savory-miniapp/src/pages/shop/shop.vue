@@ -216,7 +216,7 @@ onMounted(async () => {
   color: #fff; font-size: 32rpx; display: flex; align-items: center;
   justify-content: center; line-height: 1;
 }
-.setmeal-btn { background: #722ED1; }
+.setmeal-btn { background: $warning-color; }
 .cart-bar {
   position: fixed; bottom: 0; left: 0; right: 0;
   display: flex; align-items: center; padding: 16rpx 24rpx;

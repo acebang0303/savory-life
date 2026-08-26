@@ -42,7 +42,6 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import http from '@/api/http'
-import { ElMessage } from 'element-plus'
 
 const loading = ref(false)
 const saving = ref(false)

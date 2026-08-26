@@ -1,5 +1,6 @@
 package com.savory.ai.agent;
 
+import com.savory.ai.config.AgentProperties;
 import com.savory.ai.config.ChatClientRegistry;
 import com.savory.ai.nlsql.SqlValidator;
 import com.savory.ai.sse.SseService;
@@ -55,17 +56,20 @@ public class AgentRuntimeFactory {
     private final ExploreTools exploreTools;
     private final SqlValidator sqlValidator;
     private final JdbcTemplate bizJdbcTemplate;
+    private final AgentProperties agentProperties;
 
     public AgentRuntimeFactory(ChatClientRegistry registry,
                                SseService sseService,
                                ExploreTools exploreTools,
                                SqlValidator sqlValidator,
-                               @Qualifier("bizJdbcTemplate") JdbcTemplate bizJdbcTemplate) {
+                               @Qualifier("bizJdbcTemplate") JdbcTemplate bizJdbcTemplate,
+                               AgentProperties agentProperties) {
         this.registry = registry;
         this.sseService = sseService;
         this.exploreTools = exploreTools;
         this.sqlValidator = sqlValidator;
         this.bizJdbcTemplate = bizJdbcTemplate;
+        this.agentProperties = agentProperties;
     }
 
     public JChatMind createExplore(String model, String sessionId, String message) {
@@ -73,7 +77,8 @@ public class AgentRuntimeFactory {
         List<ToolCallback> tools = Arrays.asList(MethodToolCallbackProvider.builder()
                 .toolObjects(exploreTools).build().getToolCallbacks());
         List<Message> memory = List.of(new UserMessage(message));
-        return new JChatMind(client, EXPLORE_SYSTEM_PROMPT, tools, sseService, sessionId, memory);
+        return new JChatMind(client, EXPLORE_SYSTEM_PROMPT, tools, sseService, sessionId, memory,
+                agentProperties.getMaxIterations(), agentProperties.getTimeoutSeconds());
     }
 
     public JChatMind createMerchant(String model, String sessionId, Long merchantId, String message) {
@@ -82,6 +87,7 @@ public class AgentRuntimeFactory {
         List<ToolCallback> tools = Arrays.asList(MethodToolCallbackProvider.builder()
                 .toolObjects(queryTools).build().getToolCallbacks());
         List<Message> memory = List.of(new UserMessage(message));
-        return new JChatMind(client, MERCHANT_SYSTEM_PROMPT, tools, sseService, sessionId, memory);
+        return new JChatMind(client, MERCHANT_SYSTEM_PROMPT, tools, sseService, sessionId, memory,
+                agentProperties.getMaxIterations(), agentProperties.getTimeoutSeconds());
     }
 }

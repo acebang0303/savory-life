@@ -54,4 +54,9 @@ public interface OrderService {
      * 创建秒杀订单（trade 库建单，uk_user_activity 防重）
      */
     Long createSeckillOrder(SeckillMessage message);
+
+    /**
+     * 处理超时未支付订单（延迟消息消费触发）：取消订单 + 秒杀库存回补
+     */
+    void handleTimeoutOrder(Long orderId);
 }
