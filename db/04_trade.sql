@@ -42,6 +42,7 @@ CREATE TABLE orders (
     cancel_reason VARCHAR(256) COMMENT '取消原因',
     remark VARCHAR(256) COMMENT '用户备注',
     is_seckill INT DEFAULT 0 COMMENT '是否秒杀订单 1是 0否',
+    seckill_activity_id BIGINT COMMENT '秒杀活动ID(普通订单NULL)',
     estimated_delivery_time DATETIME COMMENT '预计送达时间',
     delivery_time DATETIME COMMENT '实际送达时间',
     pay_time DATETIME COMMENT '支付时间',
@@ -50,7 +51,8 @@ CREATE TABLE orders (
     update_time DATETIME NOT NULL,
     INDEX idx_user_id (user_id),
     INDEX idx_number (number),
-    INDEX idx_status (status)
+    INDEX idx_status (status),
+    UNIQUE KEY uk_user_activity (user_id, seckill_activity_id)
 ) COMMENT '订单表';
 
 -- 订单明细表

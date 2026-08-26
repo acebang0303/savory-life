@@ -67,6 +67,8 @@ public class Orders {
     private String remark;
     //是否秒杀订单 1是 0否
     private Integer isSeckill;
+    //秒杀活动ID（普通订单为NULL）
+    private Long seckillActivityId;
     //预计送达时间
     private LocalDateTime estimatedDeliveryTime;
     //实际送达时间

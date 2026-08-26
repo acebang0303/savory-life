@@ -13,11 +13,14 @@ CREATE TABLE seckill_activity (
     dish_id BIGINT NOT NULL COMMENT '秒杀菜品ID',
     seckill_price DECIMAL(10,2) NOT NULL COMMENT '秒杀价格',
     stock INT NOT NULL COMMENT '秒杀库存',
+    sold INT NOT NULL DEFAULT 0 COMMENT '已售数量',
     limit_per_user INT DEFAULT 1 COMMENT '每人限购数量',
     start_time DATETIME NOT NULL COMMENT '开始时间',
     end_time DATETIME NOT NULL COMMENT '结束时间',
     status INT DEFAULT 0 COMMENT '状态 0未开始 1进行中 2已结束',
+    version INT NOT NULL DEFAULT 0 COMMENT '乐观锁版本号',
     create_time DATETIME NOT NULL,
+    update_time DATETIME COMMENT '更新时间',
     INDEX idx_time (start_time, end_time)
 ) COMMENT '秒杀活动表';
 
