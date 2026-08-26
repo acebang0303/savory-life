@@ -1,6 +1,8 @@
 package com.savory.trade.pay.service;
 
+import com.savory.pojo.entity.Orders;
 import com.savory.trade.pay.core.model.PayResult;
+import com.savory.trade.pay.core.model.RefundResult;
 
 import java.math.BigDecimal;
 import java.util.Map;
@@ -15,4 +17,7 @@ public interface PayOrderService {
 
     /** 统一下单：创建支付单 → 渠道下单 → 同步支付成功则入账 */
     PayResult createPayOrder(String outOrderNo, String channelCode, BigDecimal totalAmount, Long userId);
+
+    /** 退款：渠道退款成功后回写业务订单状态 */
+    RefundResult refund(Orders order, String reason);
 }

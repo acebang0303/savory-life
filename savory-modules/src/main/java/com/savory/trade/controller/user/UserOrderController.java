@@ -50,9 +50,10 @@ public class UserOrderController {
      */
     @PostMapping("/pay")
     @Operation(summary = "发起支付")
-    public Result<String> pay(@RequestParam Long orderId) {
-        log.info("用户支付订单，orderId: {}", orderId);
-        orderService.pay(orderId, com.savory.common.context.BaseContext.getCurrentId());
+    public Result<String> pay(@RequestParam Long orderId,
+                              @RequestParam(defaultValue = "balance") String channelCode) {
+        log.info("用户支付订单，orderId: {}, channelCode: {}", orderId, channelCode);
+        orderService.pay(orderId, com.savory.common.context.BaseContext.getCurrentId(), channelCode);
         return Result.success();
     }
 

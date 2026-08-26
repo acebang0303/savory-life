@@ -11,6 +11,8 @@ import com.savory.pojo.entity.*;
 import com.savory.trade.dto.OrderSubmitDTO;
 import com.savory.trade.mapper.OrderDetailMapper;
 import com.savory.trade.mapper.OrderMapper;
+import com.savory.trade.pay.core.model.RefundResult;
+import com.savory.trade.pay.service.PayOrderService;
 import com.savory.trade.service.OrderService;
 import com.savory.user.mapper.AddressBookMapper;
 import lombok.extern.slf4j.Slf4j;
@@ -52,6 +54,9 @@ public class OrderServiceImpl implements OrderService {
 
     @Autowired
     private RedisTemplate<String, Object> redisTemplate;
+
+    @Autowired
+    private PayOrderService payOrderService;
 
     /**
      * 用户提交订单（核心流程）
@@ -202,7 +207,7 @@ public class OrderServiceImpl implements OrderService {
 
     @Override
     @Transactional
-    public void pay(Long orderId, Long userId) {
+    public void pay(Long orderId, Long userId, String channelCode) {
         //1、查询并校验订单
         Orders order = orderMapper.selectById(orderId);
         if (order == null || !order.getUserId().equals(userId)) {
@@ -212,19 +217,9 @@ public class OrderServiceImpl implements OrderService {
             throw new OrderBusinessException("订单状态异常");
         }
 
-        //2、更新支付状态（开发模式直接标记已支付，生产模式对接微信支付V3 API）
-        order.setPayStatus(Orders.PAID);
-        order.setStatus(Orders.TO_BE_CONFIRMED);
-        order.setPayTime(LocalDateTime.now());
-        order.setTransactionId("DEV_" + IdUtil.getSnowflakeNextIdStr()); //开发模式生成模拟交易号
-        orderMapper.updateById(order);
-        log.info("订单支付成功，orderId: {}, transactionId: {}", orderId, order.getTransactionId());
-
-        //3、TODO: 生产环境对接微信支付V3 API
-        // - 构建JSAPI下单请求（appid/mchid/description/amount/notify_url）
-        // - 调用微信支付API获取prepay_id
-        // - 返回小程序调起支付所需参数（appId/timeStamp/nonceStr/package/signType/paySign）
-        // - 支付结果通过PayNotifyController回调通知
+        //2、委托支付中台：创建支付单 → 渠道下单
+        // 余额/mock 渠道同步入账，状态由 OrderPaidConsumer 回写；微信渠道返回支付参数待回调
+        payOrderService.createPayOrder(order.getNumber(), channelCode, order.getPayAmount(), userId);
     }
 
     @Override
@@ -309,13 +304,17 @@ public class OrderServiceImpl implements OrderService {
             throw new OrderBusinessException("当前订单状态不可退款");
         }
 
-        //3、更新退款状态
+        //3、委托支付中台退款（余额渠道退回账户，微信渠道骨架）
+        RefundResult result = payOrderService.refund(order, "用户退款");
+        if (!result.success()) {
+            throw new OrderBusinessException(result.message());
+        }
+
+        //4、更新退款状态
         order.setStatus(Orders.REFUNDED);
         order.setPayStatus(Orders.REFUND);
         orderMapper.updateById(order);
         log.info("退款处理完成，orderId: {}", orderId);
-
-        //4、TODO: 调用微信支付退款API + 回补库存
     }
 
     @Override

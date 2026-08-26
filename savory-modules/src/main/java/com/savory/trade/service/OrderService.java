@@ -20,9 +20,9 @@ public interface OrderService {
     void cancel(Long orderId, Long userId);
 
     /**
-     * 用户支付订单（调用微信支付）
+     * 用户支付订单（渠道支付）
      */
-    void pay(Long orderId, Long userId);
+    void pay(Long orderId, Long userId, String channelCode);
 
     /**
      * 商家接单

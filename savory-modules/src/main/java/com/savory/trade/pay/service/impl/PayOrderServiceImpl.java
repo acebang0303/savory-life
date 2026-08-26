@@ -4,6 +4,7 @@ import cn.hutool.core.util.IdUtil;
 import com.alibaba.fastjson2.JSON;
 import com.baomidou.dynamic.datasource.annotation.DS;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.savory.pojo.entity.Orders;
 import com.savory.pojo.entity.PayChannel;
 import com.savory.pojo.entity.PayNotifyLog;
 import com.savory.pojo.entity.PayOrder;
@@ -11,6 +12,7 @@ import com.savory.trade.pay.core.IPayChannelHandler;
 import com.savory.trade.pay.core.PayChannelFactory;
 import com.savory.trade.pay.core.model.PayNotifyResult;
 import com.savory.trade.pay.core.model.PayResult;
+import com.savory.trade.pay.core.model.RefundResult;
 import com.savory.trade.pay.mapper.PayChannelMapper;
 import com.savory.trade.pay.mapper.PayNotifyLogMapper;
 import com.savory.trade.pay.mapper.PayOrderMapper;
@@ -138,6 +140,21 @@ public class PayOrderServiceImpl implements PayOrderService {
             markOrderPaid(payOrder, result.tradeNo(), result.buyerId());
         }
         return result;
+    }
+
+    @Override
+    @Transactional
+    public RefundResult refund(Orders order, String reason) {
+        PayOrder payOrder = payOrderMapper.selectOne(
+                new LambdaQueryWrapper<PayOrder>().eq(PayOrder::getOutOrderNo, order.getNumber()));
+        if (payOrder == null) {
+            return new RefundResult(false, "支付单不存在");
+        }
+        IPayChannelHandler handler = payChannelFactory.getHandler(payOrder.getChannelCode());
+        String refundNo = "R" + IdUtil.getSnowflakeNextIdStr();
+        PayChannel channel = payChannelMapper.selectOne(
+                new LambdaQueryWrapper<PayChannel>().eq(PayChannel::getChannelCode, payOrder.getChannelCode()));
+        return handler.refund(refundNo, order.getPayAmount().toPlainString(), reason, payOrder, channel);
     }
 
     private int markOrderPaid(PayOrder order, String tradeNo, String buyerId) {
