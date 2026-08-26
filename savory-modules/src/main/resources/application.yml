@@ -102,3 +102,15 @@ savory:
     api-key: ${DEEPSEEK_API_KEY}
     model: deepseek-chat
     service-url: ${AI_SERVICE_URL:http://localhost:8087}
+
+like:
+  hot:
+    window-seconds: 2          # 热点评估窗口（秒），HotKeyDetector 评估周期
+    threshold-per-window: 30   # 窗口内操作数阈值，超过则进入热点模式
+    cooldown-cycles: 5         # 连续低于阈值的冷却周期数，达标则退出热点
+    flush-interval-ms: 1500    # 本地聚合刷回 Redis 间隔（毫秒）
+  consumer:
+    interval-ms: 1000          # 攒批消费窥探间隔（毫秒）
+    batch-size: 500            # 攒批触发阈值（条数）
+    max-drain: 5000            # 单次窥探最大事件数
+  reconcile-interval-ms: 30000 # 兜底对账间隔（毫秒）

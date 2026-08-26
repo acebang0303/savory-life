@@ -6,8 +6,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.savory.common.context.BaseContext;
 import com.savory.common.result.PageResult;
 import com.savory.pojo.entity.Note;
-import com.savory.pojo.entity.NoteLike;
-import com.savory.social.mapper.NoteLikeMapper;
+import com.savory.social.like.NoteLikeService;
 import com.savory.social.mapper.NoteMapper;
 import com.savory.social.mq.NoteEmbeddingProducer;
 import com.savory.social.service.NoteService;
@@ -40,10 +39,10 @@ public class NoteServiceImpl implements NoteService {
     private NoteMapper noteMapper;
 
     @Autowired
-    private NoteLikeMapper noteLikeMapper;
+    private NoteEmbeddingProducer noteEmbeddingProducer;
 
     @Autowired
-    private NoteEmbeddingProducer noteEmbeddingProducer;
+    private NoteLikeService noteLikeService;
 
     @Autowired
     private RedisTemplate<String, Object> redisTemplate;
@@ -117,45 +116,23 @@ public class NoteServiceImpl implements NoteService {
     }
 
     @Override
-    @Transactional
     public boolean like(Long noteId) {
         Long userId = BaseContext.getCurrentId();
 
-        //1、检查是否已点赞
-        LambdaQueryWrapper<NoteLike> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(NoteLike::getNoteId, noteId)
-               .eq(NoteLike::getUserId, userId);
-        NoteLike exist = noteLikeMapper.selectOne(wrapper);
-
+        //1、笔记存在校验
         Note note = noteMapper.selectById(noteId);
         if (note == null) {
             return false;
         }
 
-        if (exist != null) {
-            //2、已点赞 → 取消赞
-            noteLikeMapper.deleteById(exist.getId());
-            note.setLikeCount(Math.max(0, note.getLikeCount() - 1));
-            noteMapper.updateById(note);
+        //2、走 Redis 挡写 → 攒批 → 热点聚合链路（异步落库，最终一致）
+        NoteLikeService.ToggleResult result = noteLikeService.toggle(noteId, userId);
 
-            //更新热度分
-            updateHotScore(noteId, note);
-            return false;
-        } else {
-            //3、未点赞 → 点赞
-            NoteLike noteLike = NoteLike.builder()
-                    .noteId(noteId)
-                    .userId(userId)
-                    .build();
-            noteLikeMapper.insert(noteLike);
+        //3、用实时点赞数更新热度分
+        note.setLikeCount((int) result.count());
+        updateHotScore(noteId, note);
 
-            note.setLikeCount((note.getLikeCount() != null ? note.getLikeCount() : 0) + 1);
-            noteMapper.updateById(note);
-
-            //更新热度分
-            updateHotScore(noteId, note);
-            return true;
-        }
+        return result.liked();
     }
 
     @Override
