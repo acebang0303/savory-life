@@ -1,0 +1,160 @@
+package com.savory.trade.pay.service.impl;
+
+import cn.hutool.core.util.IdUtil;
+import com.alibaba.fastjson2.JSON;
+import com.baomidou.dynamic.datasource.annotation.DS;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.savory.pojo.entity.PayChannel;
+import com.savory.pojo.entity.PayNotifyLog;
+import com.savory.pojo.entity.PayOrder;
+import com.savory.trade.pay.core.IPayChannelHandler;
+import com.savory.trade.pay.core.PayChannelFactory;
+import com.savory.trade.pay.core.model.PayNotifyResult;
+import com.savory.trade.pay.core.model.PayResult;
+import com.savory.trade.pay.mapper.PayChannelMapper;
+import com.savory.trade.pay.mapper.PayNotifyLogMapper;
+import com.savory.trade.pay.mapper.PayOrderMapper;
+import com.savory.trade.pay.service.PayOrderService;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.rocketmq.client.producer.DefaultMQProducer;
+import org.apache.rocketmq.common.message.Message;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
+import java.util.Map;
+
+/**
+ * 支付编排服务：验签 + 金额校验 + 幂等入账 + finally 留痕 + 统一下单。
+ */
+@DS("trade")
+@Service
+@Slf4j
+public class PayOrderServiceImpl implements PayOrderService {
+
+    private static final String ORDER_PAID_TOPIC = "order-paid-topic";
+
+    private final PayOrderMapper payOrderMapper;
+    private final PayNotifyLogMapper payNotifyLogMapper;
+    private final PayChannelMapper payChannelMapper;
+    private final PayChannelFactory payChannelFactory;
+    private final DefaultMQProducer rocketMQProducer;
+
+    public PayOrderServiceImpl(PayOrderMapper payOrderMapper,
+                               PayNotifyLogMapper payNotifyLogMapper,
+                               PayChannelMapper payChannelMapper,
+                               PayChannelFactory payChannelFactory,
+                               DefaultMQProducer rocketMQProducer) {
+        this.payOrderMapper = payOrderMapper;
+        this.payNotifyLogMapper = payNotifyLogMapper;
+        this.payChannelMapper = payChannelMapper;
+        this.payChannelFactory = payChannelFactory;
+        this.rocketMQProducer = rocketMQProducer;
+    }
+
+    @Override
+    @Transactional
+    public String handleNotify(String channelCode, Map<String, String> params) {
+        IPayChannelHandler handler = payChannelFactory.getHandler(channelCode);
+        PayNotifyLog notifyLog = new PayNotifyLog();
+        notifyLog.setChannelCode(channelCode);
+        notifyLog.setContent(JSON.toJSONString(params));
+        try {
+            PayChannel channel = payChannelMapper.selectOne(
+                    new LambdaQueryWrapper<PayChannel>().eq(PayChannel::getChannelCode, channelCode));
+            if (channel == null) {
+                notifyLog.setVerifyStatus(2);
+                notifyLog.setProcessStatus(2);
+                notifyLog.setProcessMsg("渠道配置不存在");
+                return handler.notifyFailBody();
+            }
+
+            PayNotifyResult result = handler.parseNotify(params, channel);
+            notifyLog.setOrderNo(result.orderNo());
+            payOrderMapper.increaseNotifyCount(result.orderNo());
+
+            if (!result.verifySuccess()) {
+                notifyLog.setVerifyStatus(2);
+                notifyLog.setProcessStatus(2);
+                notifyLog.setProcessMsg(result.failMsg());
+                return handler.notifyFailBody();
+            }
+            notifyLog.setVerifyStatus(1);
+
+            if (!result.tradeSuccess()) {
+                notifyLog.setProcessStatus(1);
+                notifyLog.setProcessMsg("交易未成功，忽略入账");
+                return handler.notifySuccessBody();
+            }
+
+            PayOrder order = payOrderMapper.selectOne(
+                    new LambdaQueryWrapper<PayOrder>().eq(PayOrder::getOrderNo, result.orderNo()));
+            if (order == null) {
+                notifyLog.setProcessStatus(2);
+                notifyLog.setProcessMsg("订单不存在");
+                return handler.notifyFailBody();
+            }
+
+            // 金额校验（防篡改）
+            if (result.payAmount() != null
+                    && order.getTotalAmount().compareTo(result.payAmount()) != 0) {
+                notifyLog.setProcessStatus(2);
+                notifyLog.setProcessMsg("金额不一致，已拒绝入账");
+                return handler.notifyFailBody();
+            }
+
+            int updated = markOrderPaid(order, result.tradeNo(), null);
+            notifyLog.setProcessStatus(1);
+            notifyLog.setProcessMsg(updated > 0 ? "入账成功" : "订单已是支付成功状态（重复通知，幂等返回）");
+            return handler.notifySuccessBody();
+        } finally {
+            payNotifyLogMapper.insert(notifyLog);
+        }
+    }
+
+    @Override
+    @Transactional
+    public PayResult createPayOrder(String outOrderNo, String channelCode,
+                                    BigDecimal totalAmount, Long userId) {
+        PayOrder payOrder = PayOrder.builder()
+                .orderNo("P" + IdUtil.getSnowflakeNextIdStr())
+                .outOrderNo(outOrderNo)
+                .userId(userId)
+                .channelCode(channelCode)
+                .totalAmount(totalAmount)
+                .status(PayOrder.STATUS_WAIT)
+                .notifyCount(0)
+                .build();
+        payOrderMapper.insert(payOrder);
+
+        IPayChannelHandler handler = payChannelFactory.getHandler(channelCode);
+        PayChannel channel = payChannelMapper.selectOne(
+                new LambdaQueryWrapper<PayChannel>().eq(PayChannel::getChannelCode, channelCode));
+        PayResult result = handler.unifiedOrder(payOrder, channel);
+
+        // 余额/mock 渠道下单即同步入账
+        if (result.paid()) {
+            markOrderPaid(payOrder, result.tradeNo(), result.buyerId());
+        }
+        return result;
+    }
+
+    private int markOrderPaid(PayOrder order, String tradeNo, String buyerId) {
+        int updated = payOrderMapper.updateOrderPaid(order.getOrderNo(), tradeNo, buyerId);
+        if (updated > 0) {
+            sendOrderPaid(order.getOutOrderNo());
+        }
+        return updated;
+    }
+
+    private void sendOrderPaid(String outOrderNo) {
+        try {
+            Message message = new Message(ORDER_PAID_TOPIC,
+                    outOrderNo.getBytes(StandardCharsets.UTF_8));
+            rocketMQProducer.send(message);
+        } catch (Exception e) {
+            log.warn("发送支付成功消息失败 outOrderNo={}: {}", outOrderNo, e.getMessage());
+        }
+    }
+}
