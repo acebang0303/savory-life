@@ -50,3 +50,14 @@ CREATE TABLE user_coupon (
     expire_time DATETIME NOT NULL COMMENT '过期时间',
     INDEX idx_user_id (user_id)
 ) COMMENT '用户优惠券表';
+
+-- 短链表
+CREATE TABLE short_link (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    short_code VARCHAR(16) NOT NULL UNIQUE COMMENT '短码',
+    long_url VARCHAR(512) NOT NULL COMMENT '原始长链',
+    url_hash BIGINT NOT NULL COMMENT '长链64位哈希',
+    click_count BIGINT DEFAULT 0 COMMENT '点击次数',
+    create_time DATETIME NOT NULL,
+    INDEX idx_url_hash (url_hash)
+) COMMENT '短链表';
