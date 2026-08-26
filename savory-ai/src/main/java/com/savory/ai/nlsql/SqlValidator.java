@@ -60,6 +60,18 @@ public class SqlValidator {
             return false;
         }
 
+        // 剥离注释与字符串字面量后，检测「中间」的多语句分号
+        String noComment = sql.replaceAll("/\\*.*?\\*/", "").replaceAll("--[^\\n]*", "");
+        String stripped = stripStrings(noComment).trim();
+        // 去掉末尾单个分号（单条语句允许以 ; 结尾），仅拦截中间的语句分隔分号
+        if (stripped.endsWith(";")) {
+            stripped = stripped.substring(0, stripped.length() - 1).trim();
+        }
+        if (stripped.contains(";")) {
+            log.warn("SQL校验失败: 检测到多语句");
+            return false;
+        }
+
         String upperSql = sql.toUpperCase().trim();
 
         //1、只允许 SELECT / WITH (CTE) / EXPLAIN 语句
@@ -108,5 +120,13 @@ public class SqlValidator {
 
         log.info("SQL校验通过: {}", sql.substring(0, Math.min(200, sql.length())));
         return true;
+    }
+
+    /**
+     * 剥离字符串字面量（单引号包裹的内容替换为空串），
+     * 保证字符串内的分号不被误判为语句分隔符。
+     */
+    private String stripStrings(String sql) {
+        return sql.replaceAll("'[^']*'", "''");
     }
 }
