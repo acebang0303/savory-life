@@ -50,16 +50,16 @@ public class JChatMind {
     private final ChatOptions chatOptions;
     private ChatResponse lastChatResponse;
 
-    public JChatMind(String systemPrompt,
-                     ChatClient chatClient,
+    public JChatMind(ChatClient chatClient,
+                     String systemPrompt,
                      List<ToolCallback> availableTools,
                      SseService sseService,
                      String chatSessionId) {
-        this(systemPrompt, chatClient, availableTools, sseService, chatSessionId, List.of());
+        this(chatClient, systemPrompt, availableTools, sseService, chatSessionId, List.of());
     }
 
-    public JChatMind(String systemPrompt,
-                     ChatClient chatClient,
+    public JChatMind(ChatClient chatClient,
+                     String systemPrompt,
                      List<ToolCallback> availableTools,
                      SseService sseService,
                      String chatSessionId,

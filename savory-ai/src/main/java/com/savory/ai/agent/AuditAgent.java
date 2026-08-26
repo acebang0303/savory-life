@@ -2,24 +2,28 @@ package com.savory.ai.agent;
 
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONObject;
+import com.savory.ai.config.ChatClientRegistry;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.ai.chat.model.ChatModel;
-import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 /**
- * 内容审核Agent
- * 对用户发布的内容（评价、笔记）进行AI审核
- *
- * 输出JSON格式: {"approved": true/false, "reason": "...", "riskLevel": "safe/low/medium/high"}
+ * 内容审核 Agent（同步调用，不走 Agent Loop）。
+ * 通过 ChatClientRegistry 选择模型（默认 deepseek）。
  */
 @Component
 @Slf4j
 public class AuditAgent {
 
-    @Autowired
-    private ChatModel chatModel;
+    private final ChatClientRegistry registry;
+    private final String model;
+
+    public AuditAgent(ChatClientRegistry registry,
+                      @Value("${agent.audit-model:deepseek}") String model) {
+        this.registry = registry;
+        this.model = model;
+    }
 
     private static final String AUDIT_PROMPT = """
             你是内容审核助手，负责审核用户提交的评价和笔记内容。
@@ -39,27 +43,19 @@ public class AuditAgent {
             只返回JSON，不要有任何其他内容。
             """;
 
-    /**
-     * 审核内容
-     *
-     * @param content 待审核的文本内容
-     * @param contentType 内容类型: review/note
-     * @return 审核结果JSON
-     */
     public JSONObject audit(String content, String contentType) {
         log.info("内容审核Agent处理: type={}, content长度={}", contentType,
                 content != null ? content.length() : 0);
 
         String prompt = String.format("请审核以下%s内容:\n\n%s", contentType, content);
 
-        ChatClient client = ChatClient.builder(chatModel).build();
+        ChatClient client = registry.get(model);
         String response = client.prompt()
                 .system(AUDIT_PROMPT)
                 .user(prompt)
                 .call()
                 .content();
 
-        //解析JSON结果
         if (response != null) {
             try {
                 return JSON.parseObject(response.trim());
@@ -73,7 +69,6 @@ public class AuditAgent {
             }
         }
 
-        //兜底: 放行
         JSONObject fallback = new JSONObject();
         fallback.put("approved", true);
         fallback.put("reason", "AI未返回结果，默认放行");

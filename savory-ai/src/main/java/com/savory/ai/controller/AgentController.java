@@ -2,96 +2,96 @@ package com.savory.ai.controller;
 
 import com.savory.ai.agent.AuditAgent;
 import com.savory.ai.agent.ExploreAgent;
+import com.savory.ai.agent.JChatMind;
 import com.savory.ai.agent.MerchantAgent;
 import com.savory.ai.dto.AgentEvent;
-import io.micrometer.core.instrument.MeterRegistry;
-import io.micrometer.core.instrument.Timer;
+import com.savory.ai.sse.SseService;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
-import org.springframework.http.codec.ServerSentEvent;
-import org.springframework.web.bind.annotation.*;
-import reactor.core.publisher.Flux;
-import reactor.core.publisher.Mono;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+
+import java.util.UUID;
+import java.util.concurrent.Executor;
+import java.util.concurrent.Executors;
 
 /**
- * AI Agent 对话接口（SSE流式输出）
- * Event 类型: thinking → message → done
+ * AI Agent 对话接口（SSE 推送式）。
+ * 建立连接后异步执行 Agent Loop，运行时内部通过 SseService 主动推送。
  */
 @RestController
 @RequestMapping("/ai")
 @Slf4j
 public class AgentController {
 
-    @Autowired
-    private ExploreAgent exploreAgent;
+    private static final Executor EXECUTOR = Executors.newVirtualThreadPerTaskExecutor();
 
-    @Autowired
-    private MerchantAgent merchantAgent;
+    private final ExploreAgent exploreAgent;
+    private final MerchantAgent merchantAgent;
+    private final AuditAgent auditAgent;
+    private final SseService sseService;
 
-    @Autowired
-    private AuditAgent auditAgent;
+    public AgentController(ExploreAgent exploreAgent,
+                           MerchantAgent merchantAgent,
+                           AuditAgent auditAgent,
+                           SseService sseService) {
+        this.exploreAgent = exploreAgent;
+        this.merchantAgent = merchantAgent;
+        this.auditAgent = auditAgent;
+        this.sseService = sseService;
+    }
 
-    @Autowired
-    private MeterRegistry meterRegistry;
-
-    /**
-     * 探店助手Agent对话（SSE流式输出）
-     */
     @GetMapping(value = "/agent/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public Flux<ServerSentEvent<AgentEvent>> exploreChat(@RequestParam String message) {
-        log.info("探店助手SSE对话: {}", message);
-        Timer.Sample sample = Timer.start(meterRegistry);
-        return toSse(exploreAgent.execute(message))
-                .doFinally(sig -> sample.stop(meterRegistry.timer("savory.ai.agent.explore")));
+    public SseEmitter exploreChat(@RequestParam String message,
+                                  @RequestParam(defaultValue = "deepseek") String model) {
+        String sessionId = UUID.randomUUID().toString();
+        SseEmitter emitter = sseService.connect(sessionId);
+        EXECUTOR.execute(() -> {
+            try {
+                exploreAgent.execute(model, sessionId, message).run();
+            } catch (Exception e) {
+                log.error("探店助手执行失败", e);
+                sseService.send(sessionId, new AgentEvent("error", e.getMessage()));
+            } finally {
+                sseService.close(sessionId);
+            }
+        });
+        return emitter;
     }
 
-    /**
-     * 商家经营助手对话（SSE流式输出）
-     */
     @GetMapping(value = "/merchant/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public Flux<ServerSentEvent<AgentEvent>> merchantChat(@RequestParam String question,
-                                                          @RequestParam Long empId) {
-        log.info("商家经营助手对话: empId={}, question={}", empId, question);
-        Timer.Sample sample = Timer.start(meterRegistry);
-        return toSse(merchantAgent.execute(question, empId))
-                .doFinally(sig -> sample.stop(meterRegistry.timer("savory.ai.agent.merchant")));
+    public SseEmitter merchantChat(@RequestParam String question,
+                                   @RequestParam Long empId,
+                                   @RequestParam(defaultValue = "deepseek") String model) {
+        String sessionId = UUID.randomUUID().toString();
+        SseEmitter emitter = sseService.connect(sessionId);
+        EXECUTOR.execute(() -> {
+            try {
+                JChatMind runtime = merchantAgent.execute(model, sessionId, question, empId);
+                if (runtime == null) {
+                    sseService.send(sessionId, new AgentEvent("message",
+                            "未找到对应的商户信息，请联系管理员确认账号绑定。"));
+                } else {
+                    runtime.run();
+                }
+            } catch (Exception e) {
+                log.error("商家助手执行失败", e);
+                sseService.send(sessionId, new AgentEvent("error", e.getMessage()));
+            } finally {
+                sseService.close(sessionId);
+            }
+        });
+        return emitter;
     }
 
-    /**
-     * AI内容审核（内部调用接口）
-     */
     @PostMapping("/audit/content")
     public Object contentAudit(@RequestParam String content,
                                @RequestParam(defaultValue = "note") String contentType) {
         log.info("AI内容审核: type={}", contentType);
         return auditAgent.audit(content, contentType);
-    }
-
-    /**
-     * 将裸 token 流组装为结构化 SSE 事件（thinking → message → done）
-     * message 按句/段合并，避免逐字输出
-     */
-    private Flux<ServerSentEvent<AgentEvent>> toSse(Flux<String> content) {
-        Flux<AgentEvent> messageEvents = content
-                .filter(c -> c != null && !c.isEmpty())
-                .bufferUntil(this::isSentenceEnd)
-                .map(chunks -> new AgentEvent("message", String.join("", chunks)))
-                .filter(e -> !e.content().isEmpty());
-
-        return Flux.concat(
-                Mono.just(event(new AgentEvent("thinking", "正在思考..."))),
-                messageEvents.map(e -> event(e)),
-                Mono.just(event(new AgentEvent("done", "")))
-        );
-    }
-
-    private boolean isSentenceEnd(String chunk) {
-        return chunk.endsWith("。") || chunk.endsWith("！")
-                || chunk.endsWith("？") || chunk.endsWith("\n");
-    }
-
-    private ServerSentEvent<AgentEvent> event(AgentEvent e) {
-        return ServerSentEvent.builder(e).event(e.type()).build();
     }
 }
