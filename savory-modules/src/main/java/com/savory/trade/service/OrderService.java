@@ -1,5 +1,6 @@
 package com.savory.trade.service;
 
+import com.savory.market.seckill.mq.SeckillMessage;
 import com.savory.trade.dto.OrderSubmitDTO;
 import com.savory.common.result.PageResult;
 import com.savory.pojo.entity.Orders;
@@ -48,4 +49,9 @@ public interface OrderService {
      * 分页查询订单
      */
     PageResult pageQuery(Integer page, Integer pageSize, Integer status);
+
+    /**
+     * 创建秒杀订单（trade 库建单，uk_user_activity 防重）
+     */
+    Long createSeckillOrder(SeckillMessage message);
 }

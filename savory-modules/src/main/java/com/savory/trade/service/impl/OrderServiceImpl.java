@@ -7,6 +7,8 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.savory.common.context.BaseContext;
 import com.savory.common.exception.OrderBusinessException;
 import com.savory.common.result.PageResult;
+import com.savory.market.seckill.mq.SeckillMessage;
+import com.savory.merchant.mapper.DishMapper;
 import com.savory.pojo.entity.*;
 import com.savory.trade.dto.OrderSubmitDTO;
 import com.savory.trade.mapper.OrderDetailMapper;
@@ -20,6 +22,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -49,6 +52,9 @@ public class OrderServiceImpl implements OrderService {
 
     @Autowired
     private AddressBookMapper addressBookMapper;
+
+    @Autowired
+    private DishMapper dishMapper;
 
     @Autowired
     private RedissonClient redissonClient;
@@ -355,5 +361,38 @@ public class OrderServiceImpl implements OrderService {
 
         //3、TODO: 如果使用了优惠券，需释放优惠券
         //4、TODO: 如果是秒杀订单，需回补Redis库存
+    }
+
+    @Override
+    @Transactional
+    public Long createSeckillOrder(SeckillMessage message) {
+        //1、从菜品查 merchantId（秒杀订单必须关联商户）
+        Dish dish = dishMapper.selectById(message.dishId());
+        if (dish == null) {
+            throw new OrderBusinessException("秒杀菜品不存在");
+        }
+
+        //2、组装秒杀订单
+        Orders order = Orders.builder()
+                .number(message.orderNo())
+                .userId(message.userId())
+                .merchantId(dish.getMerchantId())
+                .amount(message.payAmount())
+                .discountAmount(BigDecimal.ZERO)
+                .deliveryFee(BigDecimal.ZERO)
+                .payAmount(message.payAmount())
+                .payStatus(Orders.UN_PAID)
+                .status(Orders.PENDING_PAYMENT)
+                .isSeckill(1)
+                .seckillActivityId(message.activityId())
+                .build();
+
+        //3、插入订单，uk_user_activity 唯一索引防重复秒杀
+        try {
+            orderMapper.insert(order);
+        } catch (DuplicateKeyException e) {
+            throw new OrderBusinessException("重复秒杀");
+        }
+        return order.getId();
     }
 }

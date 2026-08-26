@@ -37,4 +37,19 @@ public interface SeckillService {
      * @return 订单ID
      */
     Long seckillBuy(SeckillBuyDTO dto);
+
+    /**
+     * DB 兜底扣库存（market 库，CAS 防超卖）
+     */
+    boolean deductStock(Long activityId, int quantity);
+
+    /**
+     * 回补 DB 库存（建单失败补偿）
+     */
+    void restoreStock(Long activityId, int quantity);
+
+    /**
+     * 回滚 Redis 预扣库存与用户限购计数
+     */
+    void revertRedisStock(Long activityId, Long dishId, Long userId, int quantity);
 }

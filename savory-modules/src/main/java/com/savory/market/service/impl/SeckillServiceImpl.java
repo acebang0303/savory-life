@@ -7,10 +7,13 @@ import com.savory.common.context.BaseContext;
 import com.savory.common.constant.MessageConstant;
 import com.savory.common.exception.OrderBusinessException;
 import com.savory.common.result.PageResult;
+import cn.hutool.core.util.IdUtil;
 import com.savory.market.dto.SeckillBuyDTO;
 import com.savory.market.mapper.SeckillActivityMapper;
+import com.savory.market.seckill.mq.SeckillMessage;
 import com.savory.market.service.SeckillService;
 import com.savory.pojo.entity.SeckillActivity;
+import com.savory.trade.mq.OrderMessageProducer;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.RedisTemplate;
@@ -18,6 +21,7 @@ import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.List;
@@ -42,11 +46,14 @@ public class SeckillServiceImpl implements SeckillService {
     @Autowired
     private RedisTemplate<String, Object> redisTemplate;
 
-    //Redis Lua脚本: 原子执行秒杀逻辑
+    @Autowired
+    private OrderMessageProducer orderMessageProducer;
+
+    //Redis Lua脚本: 原子执行秒杀逻辑（限购用 HINCRBY 计数，支持按用户回滚）
     private static final String SECKILL_LUA_SCRIPT =
-            "-- 秒杀Lua脚本: 校验时间窗口 + 查重 + 扣库存\n" +
+            "-- 秒杀Lua脚本: 校验库存 + 限购计数 + 扣库存\n" +
             "local stockKey = KEYS[1]       -- seckill:stock:{activityId}:{dishId}\n" +
-            "local userKey = KEYS[2]        -- seckill:users:{activityId}\n" +
+            "local userKey = KEYS[2]        -- seckill:users:{activityId} (HASH: field=userId, value=已购数量)\n" +
             "local userId = ARGV[1]\n" +
             "local limitPerUser = tonumber(ARGV[2])\n" +
             "\n" +
@@ -56,17 +63,15 @@ public class SeckillServiceImpl implements SeckillService {
             "    return -1  -- 库存不足\n" +
             "end\n" +
             "\n" +
-            "-- 2. 检查是否重复下单\n" +
-            "local userCount = redis.call('SISMEMBER', userKey, userId)\n" +
-            "if userCount == 1 then\n" +
-            "    return -2  -- 重复秒杀\n" +
+            "-- 2. 检查限购\n" +
+            "local userCount = tonumber(redis.call('HGET', userKey, userId) or '0')\n" +
+            "if userCount >= limitPerUser then\n" +
+            "    return -2  -- 超过限购\n" +
             "end\n" +
             "\n" +
-            "-- 3. 扣减库存\n" +
+            "-- 3. 扣减库存 + 限购计数\n" +
             "redis.call('DECR', stockKey)\n" +
-            "\n" +
-            "-- 4. 记录用户（防重）\n" +
-            "redis.call('SADD', userKey, userId)\n" +
+            "redis.call('HINCRBY', userKey, userId, 1)\n" +
             "\n" +
             "return 1  -- 秒杀成功";
 
@@ -152,10 +157,32 @@ public class SeckillServiceImpl implements SeckillService {
 
         log.info("秒杀成功，userId: {}, activityId: {}, dishId: {}", userId, activityId, dto.getDishId());
 
-        //5、发送RocketMQ消息异步创建订单
-        //TODO: producer.send(seckillOrderMessage)
+        //5、生成订单号（防重主键），组装消息发送 RocketMQ 异步创建订单
+        String orderNo = IdUtil.getSnowflakeNextIdStr();
+        SeckillMessage message = new SeckillMessage(
+                orderNo, userId, activityId, dto.getDishId(), 1,
+                activity.getSeckillPrice());
+        orderMessageProducer.sendSeckillOrder(message);
 
-        //6、此处返回预占的订单标识，实际订单在MQ消费者中创建
-        return userId; // 临时返回userId
+        //6、返回预占订单号，实际订单在 MQ 消费者中创建
+        return Long.valueOf(orderNo);
+    }
+
+    @Override
+    public boolean deductStock(Long activityId, int quantity) {
+        return seckillActivityMapper.deductStock(activityId, quantity) > 0;
+    }
+
+    @Override
+    public void restoreStock(Long activityId, int quantity) {
+        seckillActivityMapper.restoreStock(activityId, quantity);
+    }
+
+    @Override
+    public void revertRedisStock(Long activityId, Long dishId, Long userId, int quantity) {
+        String stockKey = "seckill:stock:" + activityId + ":" + dishId;
+        String userKey = "seckill:users:" + activityId;
+        redisTemplate.opsForValue().increment(stockKey, quantity);
+        redisTemplate.opsForHash().increment(userKey, String.valueOf(userId), -quantity);
     }
 }
