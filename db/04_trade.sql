@@ -64,3 +64,74 @@ CREATE TABLE order_detail (
     number INT DEFAULT 1 COMMENT '数量',
     INDEX idx_order_id (order_id)
 ) COMMENT '订单明细表';
+
+-- ============ 支付中台 ============
+
+-- 支付渠道配置表
+CREATE TABLE pay_channel (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    channel_code VARCHAR(32) NOT NULL UNIQUE COMMENT '渠道编码 balance/mock/wechat',
+    channel_name VARCHAR(64) NOT NULL COMMENT '渠道名称',
+    status INT DEFAULT 0 COMMENT '状态 0启用 1停用',
+    config TEXT COMMENT '渠道配置JSON(密钥/网关等)',
+    create_time DATETIME NOT NULL,
+    update_time DATETIME NOT NULL
+) COMMENT '支付渠道配置表';
+
+-- 支付单表（幂等 CAS 载体）
+CREATE TABLE pay_order (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    order_no VARCHAR(64) NOT NULL UNIQUE COMMENT '支付单号',
+    out_order_no VARCHAR(64) NOT NULL COMMENT '业务订单号(orders.number)',
+    user_id BIGINT NOT NULL COMMENT '下单用户ID(余额扣款用)',
+    channel_code VARCHAR(32) NOT NULL COMMENT '渠道编码',
+    total_amount DECIMAL(10,2) NOT NULL COMMENT '支付金额',
+    status INT DEFAULT 0 COMMENT '状态 0待支付 1已支付 2已关闭',
+    trade_no VARCHAR(64) COMMENT '渠道交易号',
+    buyer_id VARCHAR(64) COMMENT '买家渠道账号',
+    pay_time DATETIME COMMENT '支付完成时间',
+    pay_params TEXT COMMENT '下单返回的支付参数',
+    notify_count INT DEFAULT 0 COMMENT '回调通知次数',
+    create_time DATETIME NOT NULL,
+    update_time DATETIME NOT NULL,
+    INDEX idx_out_order_no (out_order_no),
+    INDEX idx_status (status)
+) COMMENT '支付单表';
+
+-- 支付回调留痕表
+CREATE TABLE pay_notify_log (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    channel_code VARCHAR(32) NOT NULL,
+    order_no VARCHAR(64),
+    notify_type INT DEFAULT 1 COMMENT '1支付 2退款',
+    content TEXT COMMENT '原始通知内容',
+    verify_status INT DEFAULT 0 COMMENT '0未验 1成功 2失败',
+    process_status INT DEFAULT 0 COMMENT '0未处理 1成功 2失败',
+    process_msg VARCHAR(512) COMMENT '处理结果说明',
+    create_time DATETIME NOT NULL
+) COMMENT '支付回调留痕表';
+
+-- 余额账户表
+CREATE TABLE pay_account (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    user_id BIGINT NOT NULL UNIQUE COMMENT '用户ID',
+    balance DECIMAL(10,2) DEFAULT 0 NOT NULL COMMENT '余额',
+    status INT DEFAULT 0 COMMENT '状态 0正常 1冻结',
+    create_time DATETIME NOT NULL,
+    update_time DATETIME NOT NULL
+) COMMENT '余额账户表';
+
+-- 余额流水表（uk_type_biz 唯一键防重）
+CREATE TABLE pay_account_transaction (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    trans_no VARCHAR(64) NOT NULL UNIQUE COMMENT '流水号',
+    user_id BIGINT NOT NULL,
+    trans_type INT NOT NULL COMMENT '1消费 2退款 3调整',
+    amount DECIMAL(10,2) NOT NULL COMMENT '变动金额(正加负减)',
+    balance_after DECIMAL(10,2) NOT NULL COMMENT '变动后余额',
+    biz_no VARCHAR(64) NOT NULL COMMENT '业务单号(订单号/退款号)',
+    remark VARCHAR(256),
+    create_time DATETIME NOT NULL,
+    UNIQUE KEY uk_type_biz (trans_type, biz_no),
+    INDEX idx_user_id (user_id)
+) COMMENT '余额流水表';
