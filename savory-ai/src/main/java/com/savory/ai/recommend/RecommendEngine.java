@@ -2,9 +2,9 @@ package com.savory.ai.recommend;
 
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONArray;
+import com.savory.ai.config.ChatClientRegistry;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.embedding.EmbeddingModel;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -30,7 +30,7 @@ public class RecommendEngine {
     private EmbeddingModel embeddingModel;
 
     @Autowired
-    private ChatModel chatModel;
+    private ChatClientRegistry registry;
 
     @Autowired
     private JdbcTemplate pgJdbcTemplate;
@@ -165,8 +165,8 @@ public class RecommendEngine {
                 只返回JSON，不要其他内容。
                 """, userId, topN, candidates.toString());
 
-        //2、调用LLM
-        ChatClient client = ChatClient.builder(chatModel).build();
+        //2、调用LLM（默认 deepseek）
+        ChatClient client = registry.get("deepseek");
         String response = client.prompt().user(prompt).call().content();
 
         log.info("LLM重排序完成，userId: {}, response长度: {}", userId,

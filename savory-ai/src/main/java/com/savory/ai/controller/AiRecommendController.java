@@ -1,10 +1,10 @@
 package com.savory.ai.controller;
 
+import com.savory.ai.config.ChatClientRegistry;
 import com.savory.ai.recommend.RecommendEngine;
 import com.savory.ai.service.ConversationService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
@@ -23,7 +23,7 @@ public class AiRecommendController {
     private ConversationService conversationService;
 
     @Autowired
-    private ChatModel chatModel;
+    private ChatClientRegistry registry;
 
     /**
      * AI个性化菜品推荐
@@ -47,7 +47,7 @@ public class AiRecommendController {
 
                 订单信息：
                 """ + orderContext;
-        ChatClient client = ChatClient.builder(chatModel).build();
+        ChatClient client = registry.get("deepseek");
         return client.prompt().user(prompt).call().content();
     }
 
