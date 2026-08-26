@@ -11,6 +11,7 @@ import com.savory.pojo.entity.*;
 import com.savory.trade.dto.OrderSubmitDTO;
 import com.savory.trade.mapper.OrderDetailMapper;
 import com.savory.trade.mapper.OrderMapper;
+import com.savory.trade.mq.NotifyMessageProducer;
 import com.savory.trade.pay.core.model.RefundResult;
 import com.savory.trade.pay.service.PayOrderService;
 import com.savory.trade.service.OrderService;
@@ -57,6 +58,9 @@ public class OrderServiceImpl implements OrderService {
 
     @Autowired
     private PayOrderService payOrderService;
+
+    @Autowired
+    private NotifyMessageProducer notifyMessageProducer;
 
     /**
      * 用户提交订单（核心流程）
@@ -241,7 +245,8 @@ public class OrderServiceImpl implements OrderService {
         orderMapper.updateById(order);
         log.info("商家接单，orderId: {}", orderId);
 
-        //4、TODO: WebSocket推送通知用户"商家已接单"
+        //4、定向推送通知用户"商家已接单"
+        notifyMessageProducer.sendToUser(order.getUserId(), "接单", "您的订单已被商家接单");
     }
 
     @Override

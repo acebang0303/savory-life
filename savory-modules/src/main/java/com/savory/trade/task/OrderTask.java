@@ -3,7 +3,6 @@ package com.savory.trade.task;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.savory.pojo.entity.Orders;
 import com.savory.trade.mapper.OrderMapper;
-import com.savory.trade.websocket.WebSocketServer;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
