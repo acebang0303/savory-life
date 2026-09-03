@@ -6,6 +6,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * 评论表
@@ -32,4 +33,13 @@ public class Comment {
     private Integer likeCount;
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createTime;
+
+    //非表字段：评论者昵称/头像（列表展示）
+    @TableField(exist = false)
+    private String nickname;
+    @TableField(exist = false)
+    private String avatar;
+    //非表字段：二级回复列表
+    @TableField(exist = false)
+    private List<Comment> children;
 }

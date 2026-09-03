@@ -45,8 +45,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onBeforeUnmount } from 'vue'
 import http from '@/api/http'
+import { ElNotification } from 'element-plus'
 
 const loading = ref(false)
 const orders = ref<any[]>([])
@@ -54,15 +55,26 @@ const page = ref(1)
 const pageSize = ref(10)
 const total = ref(0)
 const statusFilter = ref<number | undefined>(undefined)
+const merchantId = ref<number>(0)
 
 const statusMap: Record<number, string> = { 1: '待支付', 2: '待接单', 3: '备货中', 4: '待取餐', 5: '已完成', 6: '已取消', 7: '已退款' }
 const statusTag = (s: number) => ({ 1: 'warning', 2: 'info', 3: '', 4: 'primary', 5: 'success', 6: 'danger', 7: 'info' } as any)[s] || 'info'
+
+async function loadMerchantId(): Promise<number | undefined> {
+  if (merchantId.value) return merchantId.value
+  try {
+    const res = await http.get('/merchant/info')
+    merchantId.value = res?.data?.id
+  } catch { /* handled */ }
+  return merchantId.value
+}
 
 async function fetchData() {
   loading.value = true
   try {
     const params: any = { page: page.value, pageSize: pageSize.value }
     if (statusFilter.value) params.status = statusFilter.value
+    params.merchantId = await loadMerchantId()
     const res = await http.get('/order/page', { params })
     orders.value = res.data.records
     total.value = res.data.total
@@ -83,7 +95,52 @@ async function handleAction(id: number, action: string) {
   fetchData()
 }
 
-onMounted(fetchData)
+let ws: WebSocket | null = null
+
+function connectWs() {
+  const empId = localStorage.getItem('empId')
+  if (!empId) return
+  // 连接后端通知 WebSocket（/ws/{empId}）
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws'
+  ws = new WebSocket(`${proto}://${location.host}/ws/${empId}`)
+  ws.onmessage = (e) => {
+    try {
+      const msg = JSON.parse(e.data)
+      if (msg.type === 'newOrder') {
+        const data = JSON.parse(msg.content || '{}')
+        ElNotification({
+          title: '🔔 新订单提醒',
+          message: `订单 ${data.orderNo || ''} 已支付，金额 ¥${data.amount ?? ''}，请及时接单`,
+          type: 'success',
+          duration: 0
+        })
+        fetchData()
+      } else if (msg.type === 'remind') {
+        const data = JSON.parse(msg.content || '{}')
+        ElNotification({
+          title: '⏰ 催单提醒',
+          message: `订单 ${data.orderNo || ''} 被用户催单，请尽快处理`,
+          type: 'warning',
+          duration: 0
+        })
+        fetchData()
+      }
+    } catch { /* 忽略无法解析的消息 */ }
+  }
+  ws.onclose = () => {
+    // 断线 5 秒后重连
+    setTimeout(connectWs, 5000)
+  }
+}
+
+onMounted(() => {
+  fetchData()
+  connectWs()
+})
+
+onBeforeUnmount(() => {
+  if (ws) ws.close()
+})
 </script>
 
 <style scoped>

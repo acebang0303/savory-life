@@ -64,7 +64,7 @@
             </el-table-column>
             <el-table-column label="点赞/评论/收藏" width="120">
               <template #default="{ row }">
-                {{ row.likes ?? 0 }}/{{ row.comments ?? 0 }}/{{ row.favorites ?? 0 }}
+                {{ row.likeCount ?? 0 }}/{{ row.commentCount ?? 0 }}/{{ row.collectCount ?? 0 }}
               </template>
             </el-table-column>
             <el-table-column label="审核状态" width="100">

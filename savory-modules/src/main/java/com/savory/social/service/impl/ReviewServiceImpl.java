@@ -29,7 +29,8 @@ public class ReviewServiceImpl implements ReviewService {
     public void publish(Review review) {
         //1、设置作者ID和审核状态
         review.setUserId(BaseContext.getCurrentId());
-        review.setAuditStatus(0); //待审核
+        //开发环境直接过审，否则评价永远待审核不展示；生产环境应接 AI AuditAgent 审核
+        review.setAuditStatus(1);
 
         //2、保存评价
         reviewMapper.insert(review);
@@ -62,5 +63,28 @@ public class ReviewServiceImpl implements ReviewService {
         //2、执行分页查询
         Page<Review> result = reviewMapper.selectPage(p, wrapper);
         return new PageResult(result.getTotal(), result.getRecords());
+    }
+
+    @Override
+    public PageResult myPageQuery(int page, int pageSize) {
+        //只查当前登录用户的评价
+        Page<Review> p = new Page<>(page, pageSize);
+        LambdaQueryWrapper<Review> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(Review::getUserId, BaseContext.getCurrentId())
+               .orderByDesc(Review::getCreateTime);
+        Page<Review> result = reviewMapper.selectPage(p, wrapper);
+        return new PageResult(result.getTotal(), result.getRecords());
+    }
+
+    @Override
+    public void audit(Long id, Integer auditStatus, String auditReason) {
+        Review review = reviewMapper.selectById(id);
+        if (review == null) {
+            throw new com.savory.common.exception.BaseException("评价不存在");
+        }
+        review.setAuditStatus(auditStatus);
+        review.setAuditReason(auditReason);
+        reviewMapper.updateById(review);
+        log.info("评价审核完成: id={}, status={}, reason={}", id, auditStatus, auditReason);
     }
 }

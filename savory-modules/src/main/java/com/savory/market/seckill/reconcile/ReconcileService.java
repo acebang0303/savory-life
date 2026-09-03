@@ -86,7 +86,9 @@ public class ReconcileService {
                 }
             } else if (Integer.parseInt(redisStock) != dbStock) {
                 details.add("stock-drift: activity#" + a.getId() + " redis=" + redisStock + " db=" + dbStock);
-                if (autoFix) {
+                // 仅当 Redis 多于 DB 时以 DB 收敛（库存异常释放）；Redis 少于 DB 是
+                // Lua 预扣后 DB 尚未异步落库的正常窗口，不能覆盖，否则购买后库存回弹
+                if (autoFix && Integer.parseInt(redisStock) > dbStock) {
                     redisExecutor.del(key);
                     redisExecutor.setIfAbsent(key, String.valueOf(dbStock),
                             Duration.between(now, a.getEndTime()));

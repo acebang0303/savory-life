@@ -37,4 +37,8 @@ public class CouponTemplate {
     private Integer status;
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createTime;
+
+    //非表字段：当前用户已领取数量
+    @TableField(exist = false)
+    private Integer receivedCount;
 }

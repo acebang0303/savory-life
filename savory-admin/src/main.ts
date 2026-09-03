@@ -8,7 +8,8 @@ import {
   Checked, DataAnalysis, Document, Food, Menu,
   Monitor, SetUp, Shop, Ticket, Timer, UserFilled,
   Search, Plus, Edit, Delete, Upload,
-  Bell, Fold, Expand, ArrowDown, ShoppingCart, Money, Clock, CircleCheck
+  Bell, Fold, Expand, ArrowDown, ShoppingCart, Money, Clock, CircleCheck,
+  MagicStick
 } from '@element-plus/icons-vue'
 import App from './App.vue'
 import router from './router'
@@ -20,7 +21,7 @@ app.use(router)
 app.use(ElementPlus, { locale: zhCn })
 
 // 按需注册图标（非全量导入，避免 ~1MB 额外体积）
-const icons: Record<string, any> = { Checked, DataAnalysis, Document, Food, Menu, Monitor, SetUp, Shop, Ticket, Timer, UserFilled, Search, Plus, Edit, Delete, Upload, Bell, Fold, Expand, ArrowDown, ShoppingCart, Money, Clock, CircleCheck }
+const icons: Record<string, any> = { Checked, DataAnalysis, Document, Food, Menu, Monitor, SetUp, Shop, Ticket, Timer, UserFilled, Search, Plus, Edit, Delete, Upload, Bell, Fold, Expand, ArrowDown, ShoppingCart, Money, Clock, CircleCheck, MagicStick }
 for (const [key, component] of Object.entries(icons)) {
   app.component(key, component)
 }

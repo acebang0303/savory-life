@@ -2,8 +2,10 @@ package com.savory.social.service.impl;
 
 import com.baomidou.dynamic.datasource.annotation.DS;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.savory.auth.mapper.UserMapper;
 import com.savory.common.context.BaseContext;
 import com.savory.pojo.entity.Follow;
+import com.savory.pojo.entity.User;
 import com.savory.social.mapper.FollowMapper;
 import com.savory.social.service.FollowService;
 import lombok.extern.slf4j.Slf4j;
@@ -11,6 +13,11 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * 关注服务实现类
@@ -23,6 +30,9 @@ public class FollowServiceImpl implements FollowService {
 
     @Autowired
     private FollowMapper followMapper;
+
+    @Autowired
+    private UserMapper userMapper;
 
     @Autowired
     private RedisTemplate<String, Object> redisTemplate;
@@ -66,6 +76,35 @@ public class FollowServiceImpl implements FollowService {
         String followKey = "follow:" + followerId;
         Boolean isMember = redisTemplate.opsForSet().isMember(followKey, followeeId.toString());
         return Boolean.TRUE.equals(isMember);
+    }
+
+    @Override
+    public List<Map<String, Object>> listFollowing() {
+        Long userId = BaseContext.getCurrentId();
+        LambdaQueryWrapper<Follow> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(Follow::getFollowerId, userId);
+        List<Follow> follows = followMapper.selectList(wrapper);
+        if (follows.isEmpty()) {
+            return new ArrayList<>();
+        }
+        List<Long> ids = follows.stream().map(Follow::getFolloweeId).collect(Collectors.toList());
+        List<User> users = userMapper.selectBatchIds(ids);
+        return users.stream().map(u -> {
+            Map<String, Object> m = new java.util.HashMap<>();
+            m.put("id", u.getId());
+            m.put("nickname", u.getNickname());
+            m.put("avatar", u.getAvatar());
+            m.put("growthValue", u.getGrowthValue());
+            m.put("level", u.getLevel());
+            return m;
+        }).collect(Collectors.toList());
+    }
+
+    @Override
+    public long countFans(Long userId) {
+        LambdaQueryWrapper<Follow> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(Follow::getFolloweeId, userId);
+        return followMapper.selectCount(wrapper);
     }
 
     @Override

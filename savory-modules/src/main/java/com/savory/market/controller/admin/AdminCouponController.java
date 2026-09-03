@@ -71,4 +71,15 @@ public class AdminCouponController {
         couponService.grant(templateId, userIds);
         return Result.success();
     }
+
+    /**
+     * 启用/禁用优惠券模板
+     */
+    @PutMapping("/template/{id}/status")
+    @Operation(summary = "启用/禁用优惠券模板")
+    public Result<String> updateTemplateStatus(@PathVariable Long id, @RequestParam Integer status) {
+        log.info("更新优惠券模板状态: id={}, status={}", id, status);
+        couponService.updateTemplateStatus(id, status);
+        return Result.success();
+    }
 }

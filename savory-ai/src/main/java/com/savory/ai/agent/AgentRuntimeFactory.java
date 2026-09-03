@@ -3,7 +3,9 @@ package com.savory.ai.agent;
 import com.savory.ai.config.AgentProperties;
 import com.savory.ai.config.ChatClientRegistry;
 import com.savory.ai.nlsql.SqlValidator;
-import com.savory.ai.sse.SseService;
+import com.savory.ai.rag.RagService;
+import com.savory.ai.sse.AgentEventSink;
+import com.savory.ai.sse.SseEventSink;
 import com.savory.ai.tool.ExploreTools;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.messages.Message;
@@ -14,6 +16,7 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
@@ -51,43 +54,94 @@ public class AgentRuntimeFactory {
             要求：直接给出结论和数据，不提及SQL/表名/字段名；不编造查询结果里没有的数据；适当给出经营建议。
             """;
 
+    private static final String ADMIN_SYSTEM_PROMPT = """
+            你是知味生活平台的运营智能助手，帮助平台运营人员分析经营数据、审核内容、检索运营规则、给出商户建议。
+
+            可用工具：
+            - queryPlatformData: 查询平台经营数据（订单/营收/商户排行/菜品销量）
+            - auditContent: 审核笔记/评价内容是否合规
+            - searchKnowledgeBase: 检索运营知识库（制度/流程/入驻规则）
+            - merchantSuggestion: 针对某商户生成经营建议
+
+            回答要求：
+            1. 涉及数据的问题，先调用 queryPlatformData 获取真实数据，再基于数据回答
+            2. 涉及违规判断的问题，调用 auditContent，给出通过/不通过及理由
+            3. 涉及制度流程的问题，先调用 searchKnowledgeBase 检索后回答
+            4. 知识库自学习：若 searchKnowledgeBase 返回「未检索到相关内容」，而你基于自身知识能回答，请先深度思考给出完整准确的回答，再调用 saveKnowledgeBase 把「问题+回答」沉淀到知识库，供后续检索
+            5. 不要编造查询结果里没有的数据
+            """;
+
     private final ChatClientRegistry registry;
-    private final SseService sseService;
+    private final SseEventSink sseEventSink;
     private final ExploreTools exploreTools;
     private final SqlValidator sqlValidator;
     private final JdbcTemplate bizJdbcTemplate;
+    private final AuditAgent auditAgent;
+    private final RagService ragService;
     private final AgentProperties agentProperties;
 
     public AgentRuntimeFactory(ChatClientRegistry registry,
-                               SseService sseService,
+                               SseEventSink sseEventSink,
                                ExploreTools exploreTools,
                                SqlValidator sqlValidator,
                                @Qualifier("bizJdbcTemplate") JdbcTemplate bizJdbcTemplate,
+                               AuditAgent auditAgent,
+                               RagService ragService,
                                AgentProperties agentProperties) {
         this.registry = registry;
-        this.sseService = sseService;
+        this.sseEventSink = sseEventSink;
         this.exploreTools = exploreTools;
         this.sqlValidator = sqlValidator;
         this.bizJdbcTemplate = bizJdbcTemplate;
+        this.auditAgent = auditAgent;
+        this.ragService = ragService;
         this.agentProperties = agentProperties;
     }
 
     public JChatMind createExplore(String model, String sessionId, String message) {
+        return createExplore(model, sessionId, message, List.of(), sseEventSink);
+    }
+
+    public JChatMind createExplore(String model, String sessionId, String message,
+                                   List<Message> history, AgentEventSink sink) {
         ChatClient client = registry.get(model);
         List<ToolCallback> tools = Arrays.asList(MethodToolCallbackProvider.builder()
                 .toolObjects(exploreTools).build().getToolCallbacks());
-        List<Message> memory = List.of(new UserMessage(message));
-        return new JChatMind(client, EXPLORE_SYSTEM_PROMPT, tools, sseService, sessionId, memory,
+        List<Message> memory = new ArrayList<>(history);
+        memory.add(new UserMessage(message));
+        return new JChatMind(client, EXPLORE_SYSTEM_PROMPT, tools, sink, sessionId, memory,
                 agentProperties.getMaxIterations(), agentProperties.getTimeoutSeconds());
     }
 
     public JChatMind createMerchant(String model, String sessionId, Long merchantId, String message) {
+        return createMerchant(model, sessionId, merchantId, message, List.of(), sseEventSink);
+    }
+
+    public JChatMind createMerchant(String model, String sessionId, Long merchantId, String message,
+                                    List<Message> history, AgentEventSink sink) {
         ChatClient client = registry.get(model);
         MerchantQueryTools queryTools = new MerchantQueryTools(merchantId, client, sqlValidator, bizJdbcTemplate);
         List<ToolCallback> tools = Arrays.asList(MethodToolCallbackProvider.builder()
                 .toolObjects(queryTools).build().getToolCallbacks());
-        List<Message> memory = List.of(new UserMessage(message));
-        return new JChatMind(client, MERCHANT_SYSTEM_PROMPT, tools, sseService, sessionId, memory,
+        List<Message> memory = new ArrayList<>(history);
+        memory.add(new UserMessage(message));
+        return new JChatMind(client, MERCHANT_SYSTEM_PROMPT, tools, sink, sessionId, memory,
+                agentProperties.getMaxIterations(), agentProperties.getTimeoutSeconds());
+    }
+
+    public JChatMind createAdmin(String model, String sessionId, Long empId, String message) {
+        return createAdmin(model, sessionId, empId, message, List.of(), sseEventSink);
+    }
+
+    public JChatMind createAdmin(String model, String sessionId, Long empId, String message,
+                                 List<Message> history, AgentEventSink sink) {
+        ChatClient client = registry.get(model);
+        AdminTools adminTools = new AdminTools(registry, sqlValidator, bizJdbcTemplate, auditAgent, ragService, model);
+        List<ToolCallback> tools = Arrays.asList(MethodToolCallbackProvider.builder()
+                .toolObjects(adminTools).build().getToolCallbacks());
+        List<Message> memory = new ArrayList<>(history);
+        memory.add(new UserMessage(message));
+        return new JChatMind(client, ADMIN_SYSTEM_PROMPT, tools, sink, sessionId, memory,
                 agentProperties.getMaxIterations(), agentProperties.getTimeoutSeconds());
     }
 }

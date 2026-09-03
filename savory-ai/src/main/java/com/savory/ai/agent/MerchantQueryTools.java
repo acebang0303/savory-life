@@ -10,6 +10,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -26,6 +27,7 @@ public class MerchantQueryTools {
 
             数据库表结构（跨库查询，请使用全限定表名）：
             - savory_merchant.dish: 菜品表 (id, merchant_id, category_id, name, price, status, sales, create_time)，sales为累计销量
+            - savory_merchant.category: 分类表 (id, merchant_id, type, name, sort, status)，type: 1=菜品分类 2=套餐分类，name 为分类名称（如"招牌面"、"烤串"、"热菜"）
             - savory_trade.orders: 订单表 (id, number, user_id, merchant_id, amount, pay_amount, pay_status, status, create_time, pay_time)
             - savory_trade.order_detail: 订单明细 (id, order_id, name菜品名, amount, number数量)
             - savory_social.review: 评价表 (id, user_id, order_id, dish_id, rating评分, content内容, create_time)，无 merchant_id 字段，按商家过滤时需 JOIN savory_trade.orders ON review.order_id = orders.id
@@ -33,15 +35,22 @@ public class MerchantQueryTools {
 
             规则（按问题类型选择正确的数据源）：
             1. 只生成 SELECT 语句，不要有任何写操作
-            2. 所有查询必须包含 merchant_id 过滤条件（dish.merchant_id 或 orders.merchant_id）
+            2. 所有查询必须包含 merchant_id 过滤条件（dish.merchant_id 或 orders.merchant_id），严禁查询其他店铺的数据
             3. 「销量」「卖得最好」「热销」「排行榜」类问题：直接用 savory_merchant.dish 表的 sales 字段 ORDER BY sales DESC，不要用订单明细统计
-            4. 「营收」「流水」「订单数」「客单价」类问题：使用 savory_trade.orders 表，金额字段用 pay_amount
-            5. 「评价」「差评」「好评」「评分」类问题：使用 savory_social.review 表
-            6. 需要分页时使用 LIMIT offset, count 格式
-            7. 日期过滤使用 DATE() 函数
+            4. 「类型」「菜系」「分类」「哪种菜最受欢迎」类问题：必须 JOIN savory_merchant.category ON dish.category_id = category.id，按 category.name 分组并返回分类名称（如"招牌面"），不要返回 category_id 数字；可用 SUM(dish.sales) 或 SUM(dish.sales) 排序取 TOP 5
+            5. 「营收」「流水」「订单数」「客单价」类问题：使用 savory_trade.orders 表，金额字段用 pay_amount
+            6. 「评价」「差评」「好评」「评分」类问题：使用 savory_social.review 表
+            7. 需要分页时使用 LIMIT offset, count 格式
+            8. 日期过滤使用 DATE() 函数
 
             请只返回SQL语句，不要有任何解释。
             """;
+
+    // 商家经营允许访问的业务表
+    private static final Set<String> ALLOWED_TABLES = Set.of(
+            "savory_merchant.dish", "savory_merchant.category",
+            "savory_trade.orders", "savory_trade.order_detail",
+            "savory_social.review", "savory_user.user");
 
     private final Long merchantId;
     private final ChatClient chatClient;
@@ -62,7 +71,7 @@ public class MerchantQueryTools {
         if (sql == null || sql.isEmpty()) {
             return "无法理解该问题";
         }
-        if (!sqlValidator.validate(sql)) {
+        if (!sqlValidator.validate(sql, ALLOWED_TABLES)) {
             return "该问题涉及的数据无法查询";
         }
         sql = ensureLimit(sql);

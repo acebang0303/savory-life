@@ -21,6 +21,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 @DS("merchant")
@@ -62,12 +63,13 @@ public class DishServiceImpl implements DishService {
     }
 
     @Override
-    @Cacheable(value = "dish", key = "#dishPageQueryDTO.page + '_' + #dishPageQueryDTO.pageSize")
+    @Cacheable(value = "dish", key = "#dishPageQueryDTO.page + '_' + #dishPageQueryDTO.pageSize + '_' + #dishPageQueryDTO.merchantId + '_' + #dishPageQueryDTO.categoryId + '_' + #dishPageQueryDTO.status + '_' + #dishPageQueryDTO.name")
     public PageResult pageQuery(DishPageQueryDTO dishPageQueryDTO) {
         //1、构建分页条件
         Page<Dish> page = new Page<>(dishPageQueryDTO.getPage(), dishPageQueryDTO.getPageSize());
         LambdaQueryWrapper<Dish> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(dishPageQueryDTO.getCategoryId() != null, Dish::getCategoryId, dishPageQueryDTO.getCategoryId())
+        wrapper.eq(dishPageQueryDTO.getMerchantId() != null, Dish::getMerchantId, dishPageQueryDTO.getMerchantId())
+               .eq(dishPageQueryDTO.getCategoryId() != null, Dish::getCategoryId, dishPageQueryDTO.getCategoryId())
                .eq(dishPageQueryDTO.getStatus() != null, Dish::getStatus, dishPageQueryDTO.getStatus())
                .like(dishPageQueryDTO.getName() != null, Dish::getName, dishPageQueryDTO.getName())
                .orderByDesc(Dish::getCreateTime);
@@ -84,7 +86,24 @@ public class DishServiceImpl implements DishService {
         wrapper.eq(Dish::getCategoryId, categoryId)
                .eq(Dish::getStatus, 1)
                .orderByAsc(Dish::getCreateTime);
-        return dishMapper.selectList(wrapper);
+        List<Dish> dishes = dishMapper.selectList(wrapper);
+        fillFlavors(dishes);
+        return dishes;
+    }
+
+    /**
+     * 批量填充菜品口味（非表字段 flavors）
+     */
+    private void fillFlavors(List<Dish> dishes) {
+        if (dishes == null || dishes.isEmpty()) {
+            return;
+        }
+        List<Long> dishIds = dishes.stream().map(Dish::getId).collect(java.util.stream.Collectors.toList());
+        LambdaQueryWrapper<DishFlavor> fw = new LambdaQueryWrapper<>();
+        fw.in(DishFlavor::getDishId, dishIds);
+        Map<Long, List<DishFlavor>> flavorMap = dishFlavorMapper.selectList(fw).stream()
+                .collect(java.util.stream.Collectors.groupingBy(DishFlavor::getDishId));
+        dishes.forEach(d -> d.setFlavors(flavorMap.getOrDefault(d.getId(), java.util.Collections.emptyList())));
     }
 
     @Override

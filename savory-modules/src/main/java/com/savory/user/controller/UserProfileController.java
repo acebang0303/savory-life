@@ -1,13 +1,19 @@
 package com.savory.user.controller;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.savory.common.context.BaseContext;
 import com.savory.common.result.Result;
+import com.savory.pojo.entity.Follow;
+import com.savory.pojo.entity.Orders;
 import com.savory.pojo.entity.User;
 import com.savory.auth.service.UserAuthService;
+import com.savory.social.mapper.FollowMapper;
+import com.savory.trade.mapper.OrderMapper;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.HashMap;
@@ -24,6 +30,38 @@ public class UserProfileController {
 
     @Autowired
     private UserAuthService userAuthService;
+
+    @Autowired
+    private OrderMapper orderMapper;
+
+    @Autowired
+    private FollowMapper followMapper;
+
+    @Autowired
+    private RedisTemplate<String, Object> redisTemplate;
+
+    /**
+     * 个人主页统计数据（订单/收藏/关注/粉丝）
+     */
+    @GetMapping("/stats")
+    @Operation(summary = "个人主页统计")
+    public Result<Map<String, Object>> stats() {
+        Long userId = BaseContext.getCurrentId();
+        Map<String, Object> result = new HashMap<>();
+        //订单数
+        result.put("orderCount", orderMapper.selectCount(
+                new LambdaQueryWrapper<Orders>().eq(Orders::getUserId, userId)));
+        //收藏数（Redis 用户收藏集合）
+        Long collectCount = redisTemplate.opsForSet().size("user:collect:" + userId);
+        result.put("collectCount", collectCount != null ? collectCount : 0);
+        //关注数
+        result.put("followCount", followMapper.selectCount(
+                new LambdaQueryWrapper<Follow>().eq(Follow::getFollowerId, userId)));
+        //粉丝数
+        result.put("fansCount", followMapper.selectCount(
+                new LambdaQueryWrapper<Follow>().eq(Follow::getFolloweeId, userId)));
+        return Result.success(result);
+    }
 
     /**
      * 获取个人信息

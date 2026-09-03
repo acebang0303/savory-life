@@ -51,6 +51,11 @@ public class SeckillOrderCreateConsumer {
                         new String(msg.getBody(), StandardCharsets.UTF_8), SeckillMessage.class);
                 boolean deducted = false;
                 try {
+                    // 0. 幂等：orderNo 已建单（重复投递）→ 跳过，避免重复扣库存
+                    if (orderService.seckillOrderExists(message.orderNo())) {
+                        log.info("重复投递已处理，跳过: orderNo={}", message.orderNo());
+                        continue;
+                    }
                     // 1. market 库 CAS 扣库存
                     deducted = seckillService.deductStock(message.activityId(), message.quantity());
                     if (!deducted) {

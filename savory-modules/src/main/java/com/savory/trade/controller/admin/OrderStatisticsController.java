@@ -32,9 +32,9 @@ public class OrderStatisticsController {
      * 从数据库实时聚合查询当日订单数、交易额、各状态订单数
      */
     @GetMapping("/statistics")
-    @Operation(summary = "获取订单统计数据")
-    public Result<Map<String, Object>> statistics() {
-        log.info("获取订单统计数据");
+    @Operation(summary = "获取订单统计数据（merchantId 为空为全平台，商家端传自身店铺）")
+    public Result<Map<String, Object>> statistics(@RequestParam(required = false) Long merchantId) {
+        log.info("获取订单统计数据, merchantId: {}", merchantId);
 
         //1、计算今日日期范围
         LocalDate today = LocalDate.now();
@@ -43,24 +43,28 @@ public class OrderStatisticsController {
 
         //2、查询今日订单数
         LambdaQueryWrapper<Orders> todayWrapper = new LambdaQueryWrapper<>();
-        todayWrapper.ge(Orders::getCreateTime, todayStart)
+        todayWrapper.eq(merchantId != null, Orders::getMerchantId, merchantId)
+                    .ge(Orders::getCreateTime, todayStart)
                     .le(Orders::getCreateTime, todayEnd);
         Long todayOrders = orderMapper.selectCount(todayWrapper);
 
         //3、查询待处理订单数（待接单+备货中+待取餐）
         LambdaQueryWrapper<Orders> pendingWrapper = new LambdaQueryWrapper<>();
-        pendingWrapper.in(Orders::getStatus,
+        pendingWrapper.eq(merchantId != null, Orders::getMerchantId, merchantId)
+                .in(Orders::getStatus,
                 Orders.TO_BE_CONFIRMED, Orders.PREPARING, Orders.AWAITING_PICKUP);
         Long pendingOrders = orderMapper.selectCount(pendingWrapper);
 
         //4、查询已完成订单数
         LambdaQueryWrapper<Orders> completedWrapper = new LambdaQueryWrapper<>();
-        completedWrapper.eq(Orders::getStatus, Orders.COMPLETED);
+        completedWrapper.eq(merchantId != null, Orders::getMerchantId, merchantId)
+                .eq(Orders::getStatus, Orders.COMPLETED);
         Long completedOrders = orderMapper.selectCount(completedWrapper);
 
         //5、查询今日已支付总金额（简化为统计今日创建且已支付的订单）
         LambdaQueryWrapper<Orders> revenueWrapper = new LambdaQueryWrapper<>();
-        revenueWrapper.ge(Orders::getCreateTime, todayStart)
+        revenueWrapper.eq(merchantId != null, Orders::getMerchantId, merchantId)
+                      .ge(Orders::getCreateTime, todayStart)
                       .le(Orders::getCreateTime, todayEnd)
                       .eq(Orders::getPayStatus, Orders.PAID);
         // 通过遍历计算总金额

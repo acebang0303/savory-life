@@ -43,16 +43,13 @@ public class OrderMessageProducer {
     }
 
     /**
-     * 发送秒杀订单异步创建消息
+     * 发送秒杀订单异步创建消息。
+     * 发送失败抛出异常：调用方(seckillBuy)需回滚已扣的 Redis 库存，避免"库存扣了订单没建"。
      */
-    public void sendSeckillOrder(SeckillMessage message) {
-        try {
-            Message msg = new Message(SECKILL_ORDER_TOPIC,
-                    JSON.toJSONString(message).getBytes(StandardCharsets.UTF_8));
-            rocketMQProducer.send(msg);
-            log.info("发送秒杀订单消息: orderNo={}", message.orderNo());
-        } catch (Exception e) {
-            log.warn("发送秒杀订单消息失败 orderNo={}: {}", message.orderNo(), e.getMessage());
-        }
+    public void sendSeckillOrder(SeckillMessage message) throws Exception {
+        Message msg = new Message(SECKILL_ORDER_TOPIC,
+                JSON.toJSONString(message).getBytes(StandardCharsets.UTF_8));
+        rocketMQProducer.send(msg);
+        log.info("发送秒杀订单消息: orderNo={}", message.orderNo());
     }
 }

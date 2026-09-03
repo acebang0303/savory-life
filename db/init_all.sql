@@ -15,5 +15,8 @@ SOURCE 06_social.sql;
 -- 如需更大规模演示数据可另行执行 98_mock_data.sql
 SOURCE 99_seed_data.sql;
 
+-- 活动(banner) + 用户行为 + 补充种子数据
+SOURCE 10_activity.sql;
+
 -- pgvector 请在 PostgreSQL 中单独执行:
 -- psql -U postgres -d savory_ai -f 07_pgvector.sql

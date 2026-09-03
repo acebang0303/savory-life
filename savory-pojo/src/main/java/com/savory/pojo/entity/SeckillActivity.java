@@ -44,4 +44,10 @@ public class SeckillActivity {
     private LocalDateTime createTime;
     @TableField(fill = FieldFill.INSERT_UPDATE)
     private LocalDateTime updateTime;
+
+    //非表字段：菜品名/店铺名（列表展示）
+    @TableField(exist = false)
+    private String dishName;
+    @TableField(exist = false)
+    private String merchantName;
 }

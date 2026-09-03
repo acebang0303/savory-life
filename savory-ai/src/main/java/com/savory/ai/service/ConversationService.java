@@ -132,14 +132,20 @@ public class ConversationService {
     }
 
     /**
-     * 获取用户的所有对话列表
+     * 获取用户的所有对话列表（按 userId + agentType 双条件隔离，
+     * 避免商家/管理端/用户端同一数字 ID 撞号导致会话串扰）
      *
      * @param userId 用户ID
+     * @param agentType Agent类型（可空，空则只看 userId）
      * @return 对话列表（按更新时间倒序）
      */
     @SuppressWarnings("unchecked")
-    public List<Map> listConversations(Long userId) {
-        Query query = new Query(Criteria.where("userId").is(userId));
+    public List<Map> listConversations(Long userId, String agentType) {
+        Criteria criteria = Criteria.where("userId").is(userId);
+        if (agentType != null && !agentType.isBlank()) {
+            criteria.and("agentType").is(agentType.toUpperCase());
+        }
+        Query query = new Query(criteria);
         query.fields()
                 .include("_id")
                 .include("agentType")

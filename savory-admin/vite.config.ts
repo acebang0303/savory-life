@@ -24,6 +24,10 @@ export default defineConfig({
         target: 'http://localhost:8080',
         changeOrigin: true
       },
+      '/ai': {
+        target: 'http://localhost:8087',
+        changeOrigin: true
+      },
       '/ws': {
         target: 'ws://localhost:8080',
         ws: true

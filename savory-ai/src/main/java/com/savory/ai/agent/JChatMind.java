@@ -1,7 +1,7 @@
 package com.savory.ai.agent;
 
 import com.savory.ai.dto.AgentEvent;
-import com.savory.ai.sse.SseService;
+import com.savory.ai.sse.AgentEventSink;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.memory.ChatMemory;
@@ -42,7 +42,7 @@ public class JChatMind {
     private final String systemPrompt;
     private final ChatClient chatClient;
     private final List<ToolCallback> availableTools;
-    private final SseService sseService;
+    private final AgentEventSink eventSink;
     private final String chatSessionId;
     private final int maxSteps;
     private final long timeoutMillis;
@@ -56,26 +56,26 @@ public class JChatMind {
     public JChatMind(ChatClient chatClient,
                      String systemPrompt,
                      List<ToolCallback> availableTools,
-                     SseService sseService,
+                     AgentEventSink eventSink,
                      String chatSessionId) {
-        this(chatClient, systemPrompt, availableTools, sseService, chatSessionId,
+        this(chatClient, systemPrompt, availableTools, eventSink, chatSessionId,
                 List.of(), DEFAULT_MAX_STEPS, DEFAULT_TIMEOUT_SECONDS);
     }
 
     public JChatMind(ChatClient chatClient,
                      String systemPrompt,
                      List<ToolCallback> availableTools,
-                     SseService sseService,
+                     AgentEventSink eventSink,
                      String chatSessionId,
                      List<Message> memory) {
-        this(chatClient, systemPrompt, availableTools, sseService, chatSessionId,
+        this(chatClient, systemPrompt, availableTools, eventSink, chatSessionId,
                 memory, DEFAULT_MAX_STEPS, DEFAULT_TIMEOUT_SECONDS);
     }
 
     public JChatMind(ChatClient chatClient,
                      String systemPrompt,
                      List<ToolCallback> availableTools,
-                     SseService sseService,
+                     AgentEventSink eventSink,
                      String chatSessionId,
                      List<Message> memory,
                      int maxSteps,
@@ -83,7 +83,7 @@ public class JChatMind {
         this.systemPrompt = systemPrompt;
         this.chatClient = chatClient;
         this.availableTools = availableTools;
-        this.sseService = sseService;
+        this.eventSink = eventSink;
         this.chatSessionId = chatSessionId;
         this.maxSteps = maxSteps;
         this.timeoutMillis = timeoutSeconds * 1000L;
@@ -135,7 +135,7 @@ public class JChatMind {
         List<AssistantMessage.ToolCall> toolCalls = output.getToolCalls();
 
         if (StringUtils.hasLength(output.getText())) {
-            sseService.send(chatSessionId, new AgentEvent("message", output.getText()));
+            eventSink.send(chatSessionId, new AgentEvent("message", output.getText()));
         }
 
         logToolCalls(toolCalls);
@@ -169,7 +169,7 @@ public class JChatMind {
                 .collect(Collectors.joining("\n"));
 
         log.info("工具调用结果：{}", collect);
-        sseService.send(chatSessionId, new AgentEvent("action", collect));
+        eventSink.send(chatSessionId, new AgentEvent("action", collect));
 
         if (toolResponseMessage.getResponses()
                 .stream()

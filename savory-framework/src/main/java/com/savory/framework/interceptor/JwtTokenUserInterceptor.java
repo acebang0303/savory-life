@@ -10,8 +10,13 @@ import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.http.server.PathContainer;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.HandlerInterceptor;
+import org.springframework.web.util.pattern.PathPattern;
+import org.springframework.web.util.pattern.PathPatternParser;
+
+import java.util.List;
 
 /**
  * C端用户JWT令牌拦截器
@@ -29,10 +34,45 @@ public class JwtTokenUserInterceptor implements HandlerInterceptor {
 
     private static final String TOKEN_BLACKLIST_PREFIX = "token:blacklist:";
 
+    /** 游客可浏览的公开接口（有 token 仍解析 userId，无 token 直接放行） */
+    private static final List<String> PUBLIC_USER_PATTERNS = List.of(
+            "/user/merchant/list",
+            "/user/merchant/{id}",
+            "/user/merchant/{id}/dishes",
+            "/user/category/list",
+            "/user/dish/list",
+            "/user/setmeal/list",
+            "/user/dish/search",
+            "/user/note/feed",
+            "/user/note/hot",
+            "/user/note/{id}",
+            "/user/seckill/list",
+            "/user/activity/list"
+    );
+
+    private static final PathPatternParser PATH_PATTERN_PARSER = new PathPatternParser();
+
+    /**
+     * 公开浏览接口：未登录放行（游客可看内容），有 token 则解析 userId 提供个性化。
+     * 注意：AntPathMatcher 不支持 {id} 占位符，必须用 PathPattern（Spring Web 的 URI 模板）。
+     */
+    private boolean isPublicPath(String uri) {
+        PathContainer path = PathContainer.parsePath(uri);
+        return PUBLIC_USER_PATTERNS.stream().anyMatch(p -> {
+            PathPattern pattern = PATH_PATTERN_PARSER.parse(p);
+            return pattern.matches(path);
+        });
+    }
+
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) throws Exception {
         //1、从请求头中获取令牌
         String token = request.getHeader(jwtProperties.getUserTokenName());
+
+        //1.5、公开浏览接口：无 token 直接放行（游客浏览），有 token 走下面的解析
+        if (isPublicPath(request.getRequestURI()) && (token == null || token.isEmpty())) {
+            return true;
+        }
 
         //2、校验令牌是否为空
         if (token == null || token.isEmpty()) {

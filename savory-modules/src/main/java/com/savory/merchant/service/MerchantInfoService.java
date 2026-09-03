@@ -39,4 +39,9 @@ public interface MerchantInfoService {
      * 根据员工ID查询关联商户
      */
     MerchantInfo getByEmpId(Long empId);
+
+    /**
+     * 更新商户资料（商家端保存店铺信息，校验归属当前登录员工）
+     */
+    void update(MerchantInfo merchantInfo);
 }

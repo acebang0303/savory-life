@@ -14,14 +14,17 @@
     <view class="goods-section">
       <text class="section-title">商品明细</text>
       <view class="goods-item" v-for="item in items" :key="item.dishId || item.setmealId">
-        <text>{{ item.name }} x{{ item.number }}</text>
+        <view class="goods-left">
+          <text>{{ item.name }} x{{ item.number }}</text>
+          <text v-if="item.dishFlavor" class="goods-flavor">{{ item.dishFlavor }}</text>
+        </view>
         <text>¥{{ (item.amount * item.number).toFixed(2) }}</text>
       </view>
     </view>
 
-    <view class="coupon-section">
-      <text>优惠券</text>
-      <text class="coupon-val">无可用</text>
+    <view class="remark-section">
+      <text class="section-title">订单备注</text>
+      <input class="remark-input" v-model="remark" placeholder="口味、偏好等要求（选填）" />
     </view>
 
     <view class="total-section">
@@ -42,52 +45,67 @@ const cartStore = useCartStore()
 const address = ref(null)
 const items = ref([])
 const totalPrice = ref(0)
+const remark = ref('')
 
-onMounted(async () => {
-  items.value = cartStore.items
-  totalPrice.value = cartStore.totalPrice.toFixed(2)
+const loadDefaultAddr = async () => {
   try {
     const addrs = await getAddressList()
     if (addrs && addrs.length > 0) {
       address.value = addrs.find(a => a.isDefault === 1) || addrs[0]
     }
   } catch (e) { console.log('加载地址失败', e) }
+}
+
+onMounted(async () => {
+  items.value = cartStore.items
+  totalPrice.value = cartStore.totalPrice.toFixed(2)
+  await loadDefaultAddr()
 })
 
+// 跳地址管理页选择（select 模式），通过 eventChannel 回传
 const chooseAddr = () => {
-  uni.chooseAddress({
+  uni.navigateTo({
+    url: '/pages/address/address?select=1',
     success: (res) => {
-      address.value = {
-        consignee: res.userName,
-        phone: res.telNumber,
-        provinceName: res.provinceName,
-        cityName: res.cityName,
-        districtName: res.countyName,
-        detail: res.detailInfo
-      }
+      res.eventChannel.on('selectAddress', (data) => {
+        address.value = data
+      })
     }
   })
 }
 
 const confirmPay = async () => {
-  if (!address.value) {
+  if (!address.value || !address.value.id) {
     uni.showToast({ title: '请选择收货地址', icon: 'none' })
+    return
+  }
+  if (items.value.length === 0) {
+    uni.showToast({ title: '购物车为空', icon: 'none' })
     return
   }
   uni.showLoading({ title: '提交中' })
   try {
     await submitOrder({
-      addressBookId: address.value.id || 1,
+      addressBookId: address.value.id,
       merchantId: items.value[0]?.merchantId,
+      remark: remark.value,
+      items: items.value.map(i => ({
+        dishId: i.dishId || null,
+        setmealId: i.setmealId || null,
+        name: i.name,
+        amount: i.amount,
+        number: i.number,
+        dishFlavor: i.dishFlavor || ''
+      })),
       amount: Number(totalPrice.value)
     })
     uni.hideLoading()
     await cartStore.clear()
     uni.showToast({ title: '下单成功' })
-    setTimeout(() => uni.navigateBack(), 1500)
+    setTimeout(() => uni.redirectTo({ url: '/pages/order/order' }), 1200)
   } catch (e) {
     uni.hideLoading()
-    uni.showToast({ title: e.message || '失败' })
+    uni.showToast({ title: e.message || '下单失败', icon: 'none' })
   }
 }
 </script>
@@ -103,8 +121,10 @@ const confirmPay = async () => {
 .goods-section { background: #fff; margin: 0 24rpx 16rpx; border-radius: 12rpx; padding: 20rpx; }
 .section-title { font-size: 28rpx; font-weight: 600; display: block; margin-bottom: 12rpx; }
 .goods-item { display: flex; justify-content: space-between; padding: 8rpx 0; font-size: 26rpx; }
-.coupon-section { display: flex; justify-content: space-between; background: #fff; margin: 0 24rpx 16rpx; border-radius: 12rpx; padding: 20rpx; font-size: 26rpx; }
-.coupon-val { color: #999; }
+.goods-left { display: flex; flex-direction: column; }
+.goods-flavor { font-size: 22rpx; color: #999; }
+.remark-section { background: #fff; margin: 0 24rpx 16rpx; border-radius: 12rpx; padding: 20rpx; }
+.remark-input { font-size: 26rpx; }
 .total-section { display: flex; justify-content: space-between; background: #fff; margin: 0 24rpx; border-radius: 12rpx; padding: 20rpx; }
 .total-price { font-size: 36rpx; font-weight: bold; color: $primary-color; }
 .pay-btn {

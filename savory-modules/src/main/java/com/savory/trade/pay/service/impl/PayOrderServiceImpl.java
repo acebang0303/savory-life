@@ -171,6 +171,37 @@ public class PayOrderServiceImpl implements PayOrderService {
         return updated;
     }
 
+    @Override
+    public boolean mockConfirmIfWechat(String outOrderNo) {
+        PayOrder payOrder = payOrderMapper.selectOne(
+                new LambdaQueryWrapper<PayOrder>().eq(PayOrder::getOutOrderNo, outOrderNo));
+        if (payOrder == null || !"wechat".equals(payOrder.getChannelCode())) {
+            return false;
+        }
+        // 生产 real 模式不自动确认，等真实微信回调
+        PayChannel channel = payChannelMapper.selectOne(
+                new LambdaQueryWrapper<PayChannel>().eq(PayChannel::getChannelCode, "wechat"));
+        if (channel != null && channel.getConfig() != null && !channel.getConfig().isBlank()) {
+            try {
+                com.alibaba.fastjson2.JSONObject cfg = JSON.parseObject(channel.getConfig());
+                if (cfg != null && "real".equalsIgnoreCase(cfg.getString("mode"))) {
+                    return false;
+                }
+            } catch (Exception e) {
+                return false;
+            }
+        }
+        // 构造对齐真实微信 JSAPI 回调语义的参数（金额单位分）
+        Map<String, String> params = new java.util.HashMap<>();
+        params.put("out_trade_no", payOrder.getOrderNo());
+        params.put("transaction_id", "WX_MOCK_" + payOrder.getOrderNo());
+        params.put("trade_state", "SUCCESS");
+        params.put("total", payOrder.getTotalAmount()
+                .multiply(BigDecimal.valueOf(100)).toBigInteger().toString());
+        handleNotify("wechat", params);
+        return true;
+    }
+
     private void sendOrderPaid(String outOrderNo) {
         try {
             Message message = new Message(ORDER_PAID_TOPIC,

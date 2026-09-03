@@ -60,6 +60,10 @@ public class RagService {
     public void loadDocument(String knowledgeBase, String title, String content) {
         log.info("加载文档到知识库: base={}, title={}", knowledgeBase, title);
 
+        //0、同标题覆盖（避免反复沉淀同一问题导致知识库膨胀）
+        pgJdbcTemplate.update("DELETE FROM knowledge_document WHERE knowledge_base = ? AND title = ?",
+                knowledgeBase, title);
+
         //1、文档切块（Markdown 按 Heading 切分）
         List<String> chunks = markdownParserService.extractSections(content);
 

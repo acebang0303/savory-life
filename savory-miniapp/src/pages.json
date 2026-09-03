@@ -72,6 +72,42 @@
       "style": {
         "navigationBarTitleText": "AI美食搜索"
       }
+    },
+    {
+      "path": "pages/seckill/seckill",
+      "style": {
+        "navigationBarTitleText": "限时秒杀"
+      }
+    },
+    {
+      "path": "pages/coupon/coupon",
+      "style": {
+        "navigationBarTitleText": "优惠券"
+      }
+    },
+    {
+      "path": "pages/address/address",
+      "style": {
+        "navigationBarTitleText": "收货地址"
+      }
+    },
+    {
+      "path": "pages/address/edit",
+      "style": {
+        "navigationBarTitleText": "编辑地址"
+      }
+    },
+    {
+      "path": "pages/aichat/aichat",
+      "style": {
+        "navigationBarTitleText": "AI美食助手"
+      }
+    },
+    {
+      "path": "pages/note/my",
+      "style": {
+        "navigationBarTitleText": "我的笔记"
+      }
     }
   ],
   "globalStyle": {

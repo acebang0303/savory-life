@@ -127,6 +127,10 @@ const menuGroups = [
       { path: '/statistics', title: '数据统计', icon: 'DataAnalysis' },
       { path: '/employee', title: '员工管理', icon: 'UserFilled' }
     ]
+  },
+  {
+    title: '智能',
+    items: [{ path: '/ai-assistant', title: 'AI 智能助手', icon: 'MagicStick' }]
   }
 ]
 

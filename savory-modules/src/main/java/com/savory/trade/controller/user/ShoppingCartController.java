@@ -59,7 +59,11 @@ public class ShoppingCartController {
      */
     @PutMapping("/{field}/number")
     @Operation(summary = "修改购物车数量")
-    public Result<String> updateNumber(@PathVariable String field, @RequestParam Integer number) {
+    public Result<String> updateNumber(@PathVariable String field, @RequestBody Map<String, Integer> body) {
+        Integer number = body.get("number");
+        if (number == null) {
+            return Result.error("number 不能为空");
+        }
         shoppingCartService.updateNumber(field, number);
         return Result.success();
     }

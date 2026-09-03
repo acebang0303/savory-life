@@ -14,6 +14,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -120,5 +121,34 @@ public class UserNoteController {
         Map<String, Boolean> result = new HashMap<>();
         result.put("following", following);
         return Result.success(result);
+    }
+
+    /**
+     * 我关注的用户列表
+     */
+    @GetMapping("/follow/me")
+    @Operation(summary = "我关注的用户列表")
+    public Result<List<Map<String, Object>>> myFollowing() {
+        return Result.success(followService.listFollowing());
+    }
+
+    /**
+     * 笔记详情（含作者信息、互动状态、评论列表）
+     */
+    @GetMapping("/note/{id}")
+    @Operation(summary = "笔记详情")
+    public Result<Note> detail(@PathVariable Long id) {
+        return Result.success(noteService.detail(id));
+    }
+
+    /**
+     * 我的笔记
+     */
+    @GetMapping("/note/my")
+    @Operation(summary = "我的笔记")
+    public Result<PageResult> myNotes(
+            @RequestParam(defaultValue = "1") Integer page,
+            @RequestParam(defaultValue = "10") Integer pageSize) {
+        return Result.success(noteService.myNotes(page, pageSize));
     }
 }

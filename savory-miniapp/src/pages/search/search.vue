@@ -29,7 +29,8 @@
         <image class="result-img" :src="r.image || defaultImg" mode="aspectFill" />
         <view class="result-info">
           <text class="result-name">{{ r.name }}</text>
-          <text class="result-reason">{{ r.reason || '根据您的口味偏好推荐' }}</text>
+          <text class="result-shop">🏪 {{ r.merchantName || '店铺' }}</text>
+          <text class="result-reason">{{ r.reason || '为您找到的相关菜品' }}</text>
           <text class="result-price">¥{{ r.price }}</text>
         </view>
       </view>
@@ -44,6 +45,7 @@
 
 <script setup>
 import { ref } from 'vue'
+import { onLoad } from '@dcloudio/uni-app'
 import { searchDish } from '@/api/index.js'
 
 const defaultImg = '/static/icons/dish-default.png'
@@ -51,6 +53,14 @@ const keyword = ref('')
 const results = ref([])
 const searched = ref(false)
 const history = ref(uni.getStorageSync('searchHistory') ? JSON.parse(uni.getStorageSync('searchHistory')) : [])
+
+// 支持从标签/外部带 keyword 跳转并自动搜索
+onLoad((options) => {
+  if (options?.keyword) {
+    keyword.value = options.keyword
+    search()
+  }
+})
 
 const hotTags = ['火锅', '日料', '约会约会', '性价比高', '甜品', '深夜食堂']
 
@@ -79,12 +89,8 @@ const search = async () => {
       results.value = result || []
     }
   } catch (e) {
-    // 开发模式：显示mock数据
-    results.value = [
-      { id: 1, name: '水煮鱼', price: 58, reason: '麻辣鲜香，适合您的川菜偏好', merchantId: 1 },
-      { id: 2, name: '寿司拼盘', price: 88, reason: '新鲜食材，日料爱好者必选', merchantId: 1 },
-      { id: 3, name: '提拉米苏', price: 35, reason: '经典甜品，下午茶好伴侣', merchantId: 1 }
-    ]
+    results.value = []
+    uni.showToast({ title: e.message || '搜索失败，请稍后再试', icon: 'none' })
   }
 }
 
@@ -106,6 +112,7 @@ const goShop = (id) => uni.navigateTo({ url: '/pages/shop/shop?id=' + id })
 .result-img { width: 120rpx; height: 120rpx; border-radius: 8rpx; margin-right: 16rpx; background: #f0f0f0; }
 .result-info { flex: 1; }
 .result-name { font-size: 30rpx; font-weight: 600; display: block; }
+.result-shop { font-size: 22rpx; color: #999; display: block; margin-top: 2rpx; }
 .result-reason { font-size: 24rpx; color: $warning-color; display: block; margin: 4rpx 0; }
 .result-price { font-size: 32rpx; font-weight: bold; color: $primary-color; }
 .empty { text-align: center; padding: 120rpx 0; color: #999; font-size: 28rpx; }

@@ -17,6 +17,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 优惠券服务实现类
@@ -49,6 +50,26 @@ public class CouponServiceImpl implements CouponService {
 
         //2、执行分页查询
         Page<CouponTemplate> result = couponTemplateMapper.selectPage(p, wrapper);
+        return new PageResult(result.getTotal(), result.getRecords());
+    }
+
+    @Override
+    public PageResult availableTemplates(int page, int pageSize) {
+        Long userId = com.savory.common.context.BaseContext.getCurrentId();
+        Page<CouponTemplate> p = new Page<>(page, pageSize);
+        LambdaQueryWrapper<CouponTemplate> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(CouponTemplate::getStatus, 1)
+               .orderByAsc(CouponTemplate::getId);
+        Page<CouponTemplate> result = couponTemplateMapper.selectPage(p, wrapper);
+
+        //统计当前用户已领取数，标记可领/已领满
+        for (CouponTemplate t : result.getRecords()) {
+            long received = userCouponMapper.selectCount(
+                    new LambdaQueryWrapper<com.savory.pojo.entity.UserCoupon>()
+                            .eq(com.savory.pojo.entity.UserCoupon::getTemplateId, t.getId())
+                            .eq(com.savory.pojo.entity.UserCoupon::getUserId, userId));
+            t.setReceivedCount((int) received);
+        }
         return new PageResult(result.getTotal(), result.getRecords());
     }
 
@@ -122,6 +143,53 @@ public class CouponServiceImpl implements CouponService {
 
         //2、执行分页查询
         Page<UserCoupon> result = userCouponMapper.selectPage(p, wrapper);
+        //3、批量填充券模板信息（前端展示券面值/名称/门槛）
+        fillTemplates(result.getRecords());
         return new PageResult(result.getTotal(), result.getRecords());
+    }
+
+    private void fillTemplates(List<UserCoupon> coupons) {
+        if (coupons == null || coupons.isEmpty()) {
+            return;
+        }
+        List<Long> templateIds = coupons.stream()
+                .map(UserCoupon::getTemplateId)
+                .filter(java.util.Objects::nonNull)
+                .distinct()
+                .collect(java.util.stream.Collectors.toList());
+        if (templateIds.isEmpty()) {
+            return;
+        }
+        Map<Long, CouponTemplate> templateMap = couponTemplateMapper.selectBatchIds(templateIds).stream()
+                .collect(java.util.stream.Collectors.toMap(CouponTemplate::getId, t -> t));
+        coupons.forEach(c -> c.setTemplate(templateMap.get(c.getTemplateId())));
+    }
+
+    @Override
+    public void release(Long userCouponId) {
+        if (userCouponId == null) {
+            return;
+        }
+        UserCoupon coupon = userCouponMapper.selectById(userCouponId);
+        if (coupon == null) {
+            return;
+        }
+        //恢复为未使用，解除订单绑定
+        coupon.setStatus(0);
+        coupon.setOrderId(null);
+        coupon.setUseTime(null);
+        userCouponMapper.updateById(coupon);
+        log.info("优惠券已释放，userCouponId: {}", userCouponId);
+    }
+
+    @Override
+    public void updateTemplateStatus(Long id, Integer status) {
+        CouponTemplate template = couponTemplateMapper.selectById(id);
+        if (template == null) {
+            throw new com.savory.common.exception.BaseException("优惠券模板不存在");
+        }
+        CouponTemplate update = CouponTemplate.builder().id(id).status(status).build();
+        couponTemplateMapper.updateById(update);
+        log.info("优惠券模板状态更新: id={}, status={}", id, status);
     }
 }

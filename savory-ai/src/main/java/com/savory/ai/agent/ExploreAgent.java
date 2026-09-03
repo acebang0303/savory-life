@@ -1,6 +1,10 @@
 package com.savory.ai.agent;
 
+import com.savory.ai.sse.AgentEventSink;
+import org.springframework.ai.chat.messages.Message;
 import org.springframework.stereotype.Component;
+
+import java.util.List;
 
 /**
  * 探店助手：委托 AgentRuntimeFactory 组装 JChatMind 运行时实例，
@@ -17,5 +21,10 @@ public class ExploreAgent {
 
     public JChatMind execute(String model, String sessionId, String message) {
         return factory.createExplore(model, sessionId, message);
+    }
+
+    public JChatMind execute(String model, String sessionId, String message,
+                             List<Message> history, AgentEventSink sink) {
+        return factory.createExplore(model, sessionId, message, history, sink);
     }
 }

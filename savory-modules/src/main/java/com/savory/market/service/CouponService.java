@@ -34,4 +34,19 @@ public interface CouponService {
      * 我的优惠券列表
      */
     PageResult list(Integer page, Integer pageSize);
+
+    /**
+     * C端可领取优惠券模板列表（上架中且未领满）
+     */
+    PageResult availableTemplates(int page, int pageSize);
+
+    /**
+     * 释放优惠券（订单取消/拒单/超时后恢复为未使用）
+     */
+    void release(Long userCouponId);
+
+    /**
+     * 启用/禁用优惠券模板
+     */
+    void updateTemplateStatus(Long id, Integer status);
 }

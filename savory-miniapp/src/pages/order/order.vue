@@ -31,7 +31,7 @@
         </view>
         <view class="order-actions" v-if="o.status === 1">
           <button class="action-btn cancel" @click.stop="cancel(o.id)">取消订单</button>
-          <button class="action-btn pay" @click.stop="pay(o.id)">立即支付</button>
+          <button class="action-btn pay" @click.stop="pay(o)">立即支付</button>
         </view>
       </view>
     </view>
@@ -44,7 +44,7 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
-import { getOrderPage, cancelOrder, payOrder } from '@/api/index.js'
+import { getOrderPage, cancelOrder, payOrder, mockPayConfirm } from '@/api/index.js'
 import { orderStatusMap, formatTime } from '@/utils/index.js'
 
 const defaultImg = '/static/icons/dish-default.png'
@@ -92,12 +92,16 @@ const cancel = async (id) => {
   })
 }
 
-const pay = async (id) => {
+const pay = async (o) => {
+  uni.showLoading({ title: '支付中...' })
   try {
-    await payOrder(id)
+    await payOrder(o.id, 'wechat')        // 发起微信支付（mock 渠道）
+    await mockPayConfirm(o.number)         // 模拟微信回调确认入账
+    uni.hideLoading()
     uni.showToast({ title: '支付成功！', icon: 'success' })
     loadOrders()
   } catch (e) {
+    uni.hideLoading()
     uni.showToast({ title: e.message || '支付失败', icon: 'none' })
   }
 }

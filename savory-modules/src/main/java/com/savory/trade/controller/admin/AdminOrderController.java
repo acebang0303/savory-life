@@ -37,7 +37,7 @@ public class AdminOrderController {
             @RequestParam(defaultValue = "10") Integer pageSize,
             Long merchantId, Integer status) {
         log.info("分页查询订单，page: {}, merchantId: {}, status: {}", page, merchantId, status);
-        PageResult pageResult = orderService.pageQuery(page, pageSize, status);
+        PageResult pageResult = orderService.adminPageQuery(page, pageSize, merchantId, status);
         return Result.success(pageResult);
     }
 
@@ -67,6 +67,17 @@ public class AdminOrderController {
     public Result<String> reject(@PathVariable Long id, @RequestParam(required = false) String reason) {
         log.info("商家拒单，orderId: {}, reason: {}", id, reason);
         orderService.reject(id, reason);
+        return Result.success();
+    }
+
+    /**
+     * 商家备货完成（备货中 → 待取餐）
+     */
+    @PutMapping("/{id}/prepare")
+    @Operation(summary = "商家备货完成")
+    public Result<String> prepare(@PathVariable Long id) {
+        log.info("商家备货完成，orderId: {}", id);
+        orderService.prepare(id);
         return Result.success();
     }
 

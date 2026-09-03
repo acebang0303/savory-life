@@ -12,6 +12,9 @@ import com.savory.market.dto.SeckillBuyDTO;
 import com.savory.market.mapper.SeckillActivityMapper;
 import com.savory.market.seckill.mq.SeckillMessage;
 import com.savory.market.service.SeckillService;
+import com.savory.merchant.mapper.DishMapper;
+import com.savory.merchant.mapper.MerchantInfoMapper;
+import com.savory.pojo.entity.Dish;
 import com.savory.pojo.entity.SeckillActivity;
 import com.savory.trade.mq.OrderMessageProducer;
 import lombok.extern.slf4j.Slf4j;
@@ -26,6 +29,8 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * 秒杀服务实现类
@@ -43,6 +48,12 @@ public class SeckillServiceImpl implements SeckillService {
 
     @Autowired
     private SeckillActivityMapper seckillActivityMapper;
+
+    @Autowired
+    private DishMapper dishMapper;
+
+    @Autowired
+    private MerchantInfoMapper merchantInfoMapper;
 
     @Autowired
     private RedisTemplate<String, Object> redisTemplate;
@@ -100,15 +111,90 @@ public class SeckillServiceImpl implements SeckillService {
 
         //2、执行分页查询
         Page<SeckillActivity> result = seckillActivityMapper.selectPage(p, wrapper);
+
+        //3、按当前时间动态计算状态（未开始/进行中/已结束），随时间推移自动变化
+        LocalDateTime now = LocalDateTime.now();
+        result.getRecords().forEach(a -> a.setStatus(calcStatus(a, now)));
+        fillDishInfo(result.getRecords());
         return new PageResult(result.getTotal(), result.getRecords());
     }
 
     @Override
     public List<SeckillActivity> listRunning() {
-        //1、查询进行中的秒杀活动
+        //1、查询进行中的秒杀活动（按时间窗口过滤，不依赖静态 status）
+        LocalDateTime now = LocalDateTime.now();
         LambdaQueryWrapper<SeckillActivity> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(SeckillActivity::getStatus, 1);  //进行中
-        return seckillActivityMapper.selectList(wrapper);
+        wrapper.le(SeckillActivity::getStartTime, now)
+               .ge(SeckillActivity::getEndTime, now);
+        List<SeckillActivity> list = seckillActivityMapper.selectList(wrapper);
+        //2、实时库存：优先取 Redis（与购买用同一数据源），避免"列表显示 20 实际已抢光"
+        list.forEach(a -> {
+            a.setStatus(1);
+            String stockKey = "seckill:stock:" + a.getId() + ":" + a.getDishId();
+            String redisStock = stringRedisTemplate.opsForValue().get(stockKey);
+            if (redisStock != null) {
+                try {
+                    a.setStock(Integer.valueOf(redisStock));
+                } catch (NumberFormatException ignored) {
+                }
+            }
+        });
+        fillDishInfo(list);
+        return list;
+    }
+
+    /**
+     * 批量填充秒杀菜品的菜品名/店铺名（跨库查 dish / merchant_info）
+     */
+    private void fillDishInfo(List<SeckillActivity> activities) {
+        if (activities == null || activities.isEmpty()) {
+            return;
+        }
+        List<Long> dishIds = activities.stream()
+                .map(SeckillActivity::getDishId)
+                .filter(java.util.Objects::nonNull)
+                .distinct()
+                .collect(Collectors.toList());
+        if (dishIds.isEmpty()) {
+            return;
+        }
+        List<Dish> dishes = dishMapper.selectBatchIds(dishIds);
+        Map<Long, Dish> dishMap = dishes.stream()
+                .collect(Collectors.toMap(Dish::getId, d -> d));
+        List<Long> merchantIds = dishes.stream()
+                .map(Dish::getMerchantId)
+                .filter(java.util.Objects::nonNull)
+                .distinct()
+                .collect(Collectors.toList());
+        Map<Long, String> merchantMap = merchantIds.isEmpty() ? java.util.Collections.emptyMap()
+                : merchantInfoMapper.selectBatchIds(merchantIds).stream()
+                        .collect(Collectors.toMap(
+                                com.savory.pojo.entity.MerchantInfo::getId,
+                                com.savory.pojo.entity.MerchantInfo::getName,
+                                (a, b) -> a));
+        activities.forEach(a -> {
+            Dish dish = dishMap.get(a.getDishId());
+            if (dish != null) {
+                a.setDishName(dish.getName());
+                a.setMerchantName(merchantMap.getOrDefault(dish.getMerchantId(), ""));
+            }
+        });
+    }
+
+    /**
+     * 动态计算活动状态：0未开始 1进行中 2已结束
+     */
+    private int calcStatus(SeckillActivity activity, LocalDateTime now) {
+        if (activity.getStartTime() == null || activity.getEndTime() == null) {
+            return 1;
+        }
+        if (now.isBefore(activity.getStartTime())) {
+            return 0;
+        }
+        if (now.isAfter(activity.getEndTime())) {
+            return 2;
+        }
+        return 1;
     }
 
     @Override
@@ -168,7 +254,15 @@ public class SeckillServiceImpl implements SeckillService {
         SeckillMessage message = new SeckillMessage(
                 orderNo, userId, activityId, dto.getDishId(), 1,
                 activity.getSeckillPrice());
-        orderMessageProducer.sendSeckillOrder(message);
+        try {
+            orderMessageProducer.sendSeckillOrder(message);
+        } catch (Exception e) {
+            // MQ 发送失败：回滚已扣的 Redis 库存 + 限购计数，避免"库存扣了订单没建"资损
+            revertRedisStock(activityId, dto.getDishId(), userId, 1);
+            log.error("秒杀消息发送失败，已回滚Redis库存: userId={}, activityId={}, orderNo={}",
+                    userId, activityId, orderNo, e);
+            throw new OrderBusinessException("秒杀请求繁忙，请稍后重试");
+        }
 
         //6、返回预占订单号，实际订单在 MQ 消费者中创建
         return Long.valueOf(orderNo);

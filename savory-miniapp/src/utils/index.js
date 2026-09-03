@@ -17,9 +17,14 @@ export const payStatusMap = {
 }
 
 // 格式化时间
+// iOS 的 JS 引擎不支持 new Date("yyyy-MM-dd HH:mm:ss")，需把空格换成 T（ISO 8601）
 export const formatTime = (dateStr) => {
   if (!dateStr) return ''
-  const d = new Date(dateStr)
+  let d = new Date(dateStr)
+  if (isNaN(d.getTime()) && typeof dateStr === 'string' && dateStr.includes(' ')) {
+    d = new Date(dateStr.replace(' ', 'T'))
+  }
+  if (isNaN(d.getTime())) return ''
   const y = d.getFullYear()
   const M = String(d.getMonth() + 1).padStart(2, '0')
   const day = String(d.getDate()).padStart(2, '0')

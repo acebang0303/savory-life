@@ -83,7 +83,10 @@ function statusTag(status: number): 'info' | 'success' | 'warning' | 'danger' {
 async function fetchData() {
   loading.value = true
   try {
-    const res = await getOrderPage({ page: page.value, pageSize: pageSize.value, status: filter.status })
+    // undefined/null 不传 status，避免 axios 序列化成 status=undefined 导致后端转换报错
+    const params: any = { page: page.value, pageSize: pageSize.value }
+    if (filter.status !== undefined && filter.status !== null) params.status = filter.status
+    const res = await getOrderPage(params)
     orders.value = res.data.records
     total.value = res.data.total
   } finally {

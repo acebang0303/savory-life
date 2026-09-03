@@ -44,11 +44,16 @@
 </template>
 
 <script setup>
+import { onShow } from '@dcloudio/uni-app'
 import { useCartStore } from '@/store/cart.js'
-import { submitOrder } from '@/api/index.js'
 
 const cartStore = useCartStore()
 const defaultImg = '/static/icons/dish-default.png'
+
+// 购物车 tab 每次进入都拉取最新数据（Redis 暂存）
+onShow(() => {
+  cartStore.fetchCart()
+})
 
 const minus = (item) => {
   const field = item.dishId ? (item.dishId + '_' + (item.dishFlavor || '')) : (item.setmealId + '_')
@@ -67,23 +72,9 @@ const plus = (item) => {
 
 const goHome = () => uni.switchTab({ url: '/pages/index/index' })
 
+// 去确认订单页（选地址 → 提交）
 const checkout = async () => {
-  uni.showLoading({ title: '提交中...' })
-  try {
-    await submitOrder({
-      merchantId: cartStore.items[0]?.merchantId,
-      addressBookId: 1, // TODO: 从地址选择页获取
-      items: cartStore.items,
-      amount: cartStore.totalPrice
-    })
-    uni.hideLoading()
-    await cartStore.clear()
-    uni.showToast({ title: '下单成功！', icon: 'success' })
-    setTimeout(() => uni.switchTab({ url: '/pages/profile/profile' }), 1500)
-  } catch (e) {
-    uni.hideLoading()
-    uni.showToast({ title: e.message || '下单失败', icon: 'none' })
-  }
+  uni.navigateTo({ url: '/pages/order/submit' })
 }
 </script>
 

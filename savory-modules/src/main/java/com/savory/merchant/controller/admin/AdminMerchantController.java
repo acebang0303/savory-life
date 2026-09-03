@@ -86,4 +86,15 @@ public class AdminMerchantController {
         MerchantInfo info = merchantInfoService.getByEmpId(empId);
         return Result.success(info);
     }
+
+    /**
+     * 更新当前商家账号的店铺资料（保存店铺信息）
+     */
+    @PutMapping("/info")
+    @Operation(summary = "保存当前商家店铺信息")
+    public Result<String> updateInfo(@RequestBody MerchantInfo merchantInfo) {
+        log.info("保存店铺信息，merchantId: {}", merchantInfo.getId());
+        merchantInfoService.update(merchantInfo);
+        return Result.success();
+    }
 }

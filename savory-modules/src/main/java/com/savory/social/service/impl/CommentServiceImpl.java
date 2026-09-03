@@ -3,14 +3,23 @@ package com.savory.social.service.impl;
 import com.baomidou.dynamic.datasource.annotation.DS;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.savory.auth.mapper.UserMapper;
 import com.savory.common.context.BaseContext;
 import com.savory.common.result.PageResult;
 import com.savory.pojo.entity.Comment;
+import com.savory.pojo.entity.User;
 import com.savory.social.mapper.CommentMapper;
 import com.savory.social.service.CommentService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.stream.Collectors;
 
 /**
  * 评论服务实现类
@@ -21,6 +30,9 @@ import org.springframework.stereotype.Service;
 @Service
 @Slf4j
 public class CommentServiceImpl implements CommentService {
+
+    @Autowired
+    private UserMapper userMapper;
 
     @Autowired
     private CommentMapper commentMapper;
@@ -48,14 +60,61 @@ public class CommentServiceImpl implements CommentService {
         //2、执行分页查询
         Page<Comment> result = commentMapper.selectPage(p, wrapper);
 
-        //3、为每条一级评论查询其二级回复
-        //TODO: 批量查询每个一级评论的回复列表
+        //3、批量查询一级评论的二级回复并挂载
+        List<Comment> firstLevel = result.getRecords();
+        if (!firstLevel.isEmpty()) {
+            List<Long> firstIds = firstLevel.stream().map(Comment::getId).collect(Collectors.toList());
+            LambdaQueryWrapper<Comment> replyWrapper = new LambdaQueryWrapper<>();
+            replyWrapper.eq(Comment::getNoteId, noteId)
+                        .in(Comment::getParentId, firstIds)
+                        .orderByAsc(Comment::getCreateTime);
+            List<Comment> replies = commentMapper.selectList(replyWrapper);
+            Map<Long, List<Comment>> replyMap = replies.stream()
+                    .collect(Collectors.groupingBy(Comment::getParentId));
+            firstLevel.forEach(c -> c.setChildren(replyMap.getOrDefault(c.getId(), new ArrayList<>())));
+            //4、统一填充评论者昵称/头像
+            List<Comment> all = new ArrayList<>(firstLevel);
+            all.addAll(replies);
+            fillUserInfo(all);
+        }
         return new PageResult(result.getTotal(), result.getRecords());
+    }
+
+    /**
+     * 批量填充评论者昵称/头像（跨库查 user 表，无事务方法内可安全切换）
+     */
+    private void fillUserInfo(List<Comment> comments) {
+        if (comments == null || comments.isEmpty()) {
+            return;
+        }
+        List<Long> userIds = comments.stream()
+                .map(Comment::getUserId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .collect(Collectors.toList());
+        Map<Long, User> userMap = userIds.isEmpty() ? Collections.emptyMap()
+                : userMapper.selectBatchIds(userIds).stream()
+                        .collect(Collectors.toMap(User::getId, u -> u));
+        comments.forEach(c -> {
+            User u = userMap.get(c.getUserId());
+            if (u != null) {
+                c.setNickname(u.getNickname());
+                c.setAvatar(u.getAvatar());
+            }
+        });
     }
 
     @Override
     public void deleteById(Long commentId) {
-        //1、删除评论
+        //1、归属校验：只能删除自己的评论
+        Comment comment = commentMapper.selectById(commentId);
+        if (comment == null) {
+            throw new com.savory.common.exception.BaseException("评论不存在");
+        }
+        if (!comment.getUserId().equals(BaseContext.getCurrentId())) {
+            throw new com.savory.common.exception.BaseException("无权删除该评论");
+        }
+        //2、删除评论
         commentMapper.deleteById(commentId);
         log.info("评论删除，commentId: {}", commentId);
     }

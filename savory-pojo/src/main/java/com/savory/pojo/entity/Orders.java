@@ -7,6 +7,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * 订单表
@@ -81,4 +82,12 @@ public class Orders {
     private LocalDateTime createTime;
     @TableField(fill = FieldFill.INSERT_UPDATE)
     private LocalDateTime updateTime;
+
+    //非表字段：订单明细（详情接口返回）
+    @TableField(exist = false)
+    private List<OrderDetail> orderDetails;
+
+    //非表字段：店铺名称（列表展示）
+    @TableField(exist = false)
+    private String merchantName;
 }

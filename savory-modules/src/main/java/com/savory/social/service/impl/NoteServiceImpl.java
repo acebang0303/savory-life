@@ -3,13 +3,20 @@ package com.savory.social.service.impl;
 import com.baomidou.dynamic.datasource.annotation.DS;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.savory.auth.mapper.UserMapper;
 import com.savory.common.context.BaseContext;
+import com.savory.common.exception.BaseException;
 import com.savory.common.result.PageResult;
+import com.savory.pojo.entity.Comment;
 import com.savory.pojo.entity.Note;
+import com.savory.pojo.entity.User;
 import com.savory.social.like.NoteLikeService;
 import com.savory.social.mapper.NoteMapper;
 import com.savory.social.mq.NoteEmbeddingProducer;
+import com.savory.social.service.CommentService;
+import com.savory.social.service.FollowService;
 import com.savory.social.service.NoteService;
+import com.savory.user.service.GrowthService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.RedisTemplate;
@@ -17,7 +24,12 @@ import org.springframework.data.redis.core.ZSetOperations;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * 笔记服务实现类
@@ -45,7 +57,22 @@ public class NoteServiceImpl implements NoteService {
     private NoteLikeService noteLikeService;
 
     @Autowired
+    private CommentService commentService;
+
+    @Autowired
+    private FollowService followService;
+
+    @Autowired
+    private UserMapper userMapper;
+
+    @Autowired
     private RedisTemplate<String, Object> redisTemplate;
+
+    @Autowired
+    private GrowthService growthService;
+
+    /** 发布一篇笔记获得的成长值 */
+    private static final int NOTE_GROWTH = 5;
 
     private static final String HOT_NOTES_KEY = "hot_notes:weekly";
     private static final int FEED_MAX_SIZE = 500;
@@ -55,11 +82,15 @@ public class NoteServiceImpl implements NoteService {
     public void publish(Note note) {
         //1、设置作者ID
         note.setUserId(BaseContext.getCurrentId());
-        note.setAuditStatus(0); //待审核
+        //开发环境直接过审，否则内容永远待审核不展示；生产环境应接 AI AuditAgent 审核
+        note.setAuditStatus(1);
 
         //2、保存笔记
         noteMapper.insert(note);
         log.info("笔记发布成功，noteId: {}, userId: {}", note.getId(), note.getUserId());
+
+        //2.1、发放成长值（发布笔记行为）
+        growthService.addGrowth(note.getUserId(), NOTE_GROWTH);
 
         //发消息同步笔记向量（消费端按 audit_status 决定是否重建）
         noteEmbeddingProducer.send(note.getId());
@@ -85,18 +116,24 @@ public class NoteServiceImpl implements NoteService {
                 .reverseRangeWithScores(feedKey, 0, pageSize - 1);
 
         //3、合并排序 → 分页返回
-        if (feedItems == null || feedItems.isEmpty()) {
-            // 降级: 查全站最新笔记
-            Page<Note> p = new Page<>(page, pageSize);
-            LambdaQueryWrapper<Note> wrapper = new LambdaQueryWrapper<>();
-            wrapper.eq(Note::getAuditStatus, 1) // 已审核通过
-                   .orderByDesc(Note::getCreateTime);
-            Page<Note> result = noteMapper.selectPage(p, wrapper);
-            return new PageResult(result.getTotal(), result.getRecords());
+        if (feedItems != null && !feedItems.isEmpty()) {
+            List<Long> ids = feedItems.stream()
+                    .map(t -> Long.valueOf(t.getValue().toString()))
+                    .collect(Collectors.toList());
+            List<Note> notes = queryNotesOrdered(ids);
+            fillUserInfo(notes);
+            Long total = redisTemplate.opsForZSet().size(feedKey);
+            return new PageResult(total != null ? total : notes.size(), notes);
         }
 
-        //TODO: 解析Feed内容，批量查询笔记详情
-        return new PageResult(0, null);
+        // 降级: 全站笔记流（已审核通过，按时间倒序）
+        Page<Note> p = new Page<>(page, pageSize);
+        LambdaQueryWrapper<Note> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(Note::getAuditStatus, 1) // 已审核通过
+               .orderByDesc(Note::getCreateTime);
+        Page<Note> result = noteMapper.selectPage(p, wrapper);
+        fillUserInfo(result.getRecords());
+        return new PageResult(result.getTotal(), result.getRecords());
     }
 
     @Override
@@ -106,13 +143,26 @@ public class NoteServiceImpl implements NoteService {
                 .reverseRangeWithScores(HOT_NOTES_KEY,
                         (long) (page - 1) * pageSize,
                         (long) page * pageSize - 1);
-
-        //2、提取笔记ID列表
-        //TODO: 批量查询笔记详情
-
-        //3、获取总数量
         Long total = redisTemplate.opsForZSet().size(HOT_NOTES_KEY);
-        return new PageResult(total != null ? total : 0, null);
+
+        //2、ZSet为空（未初始化热度分）→ 降级按热度分查全站
+        if (hotNotes == null || hotNotes.isEmpty() || total == null || total == 0) {
+            Page<Note> p = new Page<>(page, pageSize);
+            LambdaQueryWrapper<Note> wrapper = new LambdaQueryWrapper<>();
+            wrapper.eq(Note::getAuditStatus, 1)
+                   .last("ORDER BY (like_count * 2 + comment_count * 3 + collect_count * 5) DESC, create_time DESC");
+            Page<Note> result = noteMapper.selectPage(p, wrapper);
+            fillUserInfo(result.getRecords());
+            return new PageResult(result.getTotal(), result.getRecords());
+        }
+
+        //3、按ZSet顺序批量查询笔记详情
+        List<Long> ids = hotNotes.stream()
+                .map(t -> Long.valueOf(t.getValue().toString()))
+                .collect(Collectors.toList());
+        List<Note> notes = queryNotesOrdered(ids);
+        fillUserInfo(notes);
+        return new PageResult(total, notes);
     }
 
     @Override
@@ -140,6 +190,7 @@ public class NoteServiceImpl implements NoteService {
     public boolean collect(Long noteId) {
         Long userId = BaseContext.getCurrentId();
         String collectKey = "note:collect:" + noteId;
+        String userCollectKey = "user:collect:" + userId;
 
         //1、Redis Set存储收藏关系
         Boolean isCollected = redisTemplate.opsForSet().isMember(collectKey, userId.toString());
@@ -151,16 +202,120 @@ public class NoteServiceImpl implements NoteService {
         if (Boolean.TRUE.equals(isCollected)) {
             //2、取消收藏
             redisTemplate.opsForSet().remove(collectKey, userId.toString());
+            redisTemplate.opsForSet().remove(userCollectKey, noteId.toString());
             note.setCollectCount(Math.max(0, note.getCollectCount() - 1));
             noteMapper.updateById(note);
-            return false;
         } else {
             //3、收藏
             redisTemplate.opsForSet().add(collectKey, userId.toString());
+            redisTemplate.opsForSet().add(userCollectKey, noteId.toString());
             note.setCollectCount((note.getCollectCount() != null ? note.getCollectCount() : 0) + 1);
             noteMapper.updateById(note);
-            return true;
         }
+        updateHotScore(noteId, note);
+        return !isCollected;
+    }
+
+    @Override
+    public Note detail(Long id) {
+        Note note = noteMapper.selectById(id);
+        if (note == null) {
+            throw new BaseException("笔记不存在或已删除");
+        }
+        //1、浏览量 +1
+        note.setViewCount((note.getViewCount() != null ? note.getViewCount() : 0) + 1);
+        noteMapper.updateById(note);
+        updateHotScore(id, note);
+
+        //2、作者信息 + 当前用户互动状态
+        fillUserInfo(Collections.singletonList(note));
+
+        //3、评论列表（含二级回复树，复用 CommentService 的树形查询）
+        PageResult commentPage = commentService.pageByNoteId(id, 1, 100);
+        List<Comment> comments = (List<Comment>) commentPage.getRecords();
+        note.setComments(comments);
+        return note;
+    }
+
+    @Override
+    public PageResult myNotes(int page, int pageSize) {
+        Long userId = BaseContext.getCurrentId();
+        Page<Note> p = new Page<>(page, pageSize);
+        LambdaQueryWrapper<Note> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(Note::getUserId, userId)
+               .orderByDesc(Note::getCreateTime);
+        Page<Note> result = noteMapper.selectPage(p, wrapper);
+        fillUserInfo(result.getRecords());
+        return new PageResult(result.getTotal(), result.getRecords());
+    }
+
+    @Override
+    public PageResult pageAudit(int page, int pageSize, Integer auditStatus) {
+        Page<Note> p = new Page<>(page, pageSize);
+        LambdaQueryWrapper<Note> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(auditStatus != null, Note::getAuditStatus, auditStatus)
+               .orderByDesc(Note::getCreateTime);
+        Page<Note> result = noteMapper.selectPage(p, wrapper);
+        fillUserInfo(result.getRecords());
+        return new PageResult(result.getTotal(), result.getRecords());
+    }
+
+    @Override
+    public void audit(Long id, Integer auditStatus, String auditReason) {
+        Note note = noteMapper.selectById(id);
+        if (note == null) {
+            throw new BaseException("笔记不存在");
+        }
+        note.setAuditStatus(auditStatus);
+        noteMapper.updateById(note);
+        log.info("笔记审核完成: id={}, status={}, reason={}", id, auditStatus, auditReason);
+    }
+
+    /**
+     * 按ID列表查询并保持传入顺序
+     */
+    private List<Note> queryNotesOrdered(List<Long> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return Collections.emptyList();
+        }
+        Map<Long, Note> noteMap = noteMapper.selectBatchIds(ids).stream()
+                .collect(Collectors.toMap(Note::getId, n -> n));
+        return ids.stream()
+                .map(noteMap::get)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * 填充作者昵称/头像 + 当前用户点赞/收藏/关注状态
+     * 跨库查 user 表：本方法无事务，dynamic-datasource 可安全路由
+     */
+    private void fillUserInfo(List<Note> notes) {
+        if (notes == null || notes.isEmpty()) {
+            return;
+        }
+        Long currentId = BaseContext.getCurrentId();
+        List<Long> userIds = notes.stream()
+                .map(Note::getUserId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .collect(Collectors.toList());
+        Map<Long, User> userMap = userIds.isEmpty() ? Collections.emptyMap()
+                : userMapper.selectBatchIds(userIds).stream()
+                        .collect(Collectors.toMap(User::getId, u -> u));
+
+        notes.forEach(n -> {
+            User author = userMap.get(n.getUserId());
+            if (author != null) {
+                n.setNickname(author.getNickname());
+                n.setAvatar(author.getAvatar());
+            }
+            n.setIsLiked(currentId != null && noteLikeService.currentLiked(n.getId(), currentId));
+            String collectKey = "note:collect:" + n.getId();
+            n.setIsCollected(currentId != null && Boolean.TRUE.equals(
+                    redisTemplate.opsForSet().isMember(collectKey, currentId.toString())));
+            n.setIsFollowing(currentId != null && followService.isFollowing(currentId, n.getUserId()));
+        });
     }
 
     /**

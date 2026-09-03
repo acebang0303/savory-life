@@ -7,6 +7,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * 菜品表
@@ -38,6 +39,9 @@ public class Dish {
     //菜品语义向量(用于AI向量检索, 存储在pgvector, 非MySQL列)
     @TableField(exist = false)
     private String embedding;
+    //菜品口味/规格列表(非表字段, 点餐时选择)
+    @TableField(exist = false)
+    private List<DishFlavor> flavors;
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createTime;
     @TableField(fill = FieldFill.INSERT_UPDATE)

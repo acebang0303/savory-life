@@ -32,4 +32,7 @@ public class UserCoupon {
     private LocalDateTime useTime;
     //过期时间
     private LocalDateTime expireTime;
+    //非表字段：关联的优惠券模板（列表展示券面值/名称）
+    @TableField(exist = false)
+    private CouponTemplate template;
 }

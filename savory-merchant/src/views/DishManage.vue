@@ -50,11 +50,23 @@ const dishes = ref<any[]>([])
 const page = ref(1)
 const pageSize = ref(10)
 const total = ref(0)
+const merchantId = ref<number>(0)
+
+// 解析当前登录商家的店铺 ID（一次获取后缓存）
+async function loadMerchantId(): Promise<number | undefined> {
+  if (merchantId.value) return merchantId.value
+  try {
+    const res = await http.get('/merchant/info')
+    merchantId.value = res?.data?.id
+  } catch { /* handled */ }
+  return merchantId.value
+}
 
 async function fetchData() {
   loading.value = true
   try {
-    const res = await http.get('/dish/page', { params: { page: page.value, pageSize: pageSize.value } })
+    const mid = await loadMerchantId()
+    const res = await http.get('/dish/page', { params: { page: page.value, pageSize: pageSize.value, merchantId: mid } })
     dishes.value = res.data.records
     total.value = res.data.total
   } finally { loading.value = false }

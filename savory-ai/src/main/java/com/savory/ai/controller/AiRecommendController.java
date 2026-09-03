@@ -52,11 +52,12 @@ public class AiRecommendController {
     }
 
     /**
-     * 对话历史列表
+     * 对话历史列表（按 agentType 隔离：管理端/商家端/用户端互不可见）
      */
     @GetMapping("/conversation/list")
-    public Object conversationList(@RequestParam Long userId) {
-        return conversationService.listConversations(userId);
+    public Object conversationList(@RequestParam Long userId,
+                                   @RequestParam(required = false) String agentType) {
+        return conversationService.listConversations(userId, agentType);
     }
 
     /**

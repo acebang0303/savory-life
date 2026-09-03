@@ -8,6 +8,12 @@
         </div>
       </template>
 
+      <div style="margin-bottom: 12px">
+        <el-select v-model="merchantId" placeholder="全部商户" clearable style="width: 220px" @change="onMerchantChange">
+          <el-option v-for="m in merchants" :key="m.id" :label="m.name" :value="m.id" />
+        </el-select>
+      </div>
+
       <el-table :data="dishes" stripe v-loading="loading">
         <el-table-column prop="id" label="ID" width="80" />
         <el-table-column label="图片" width="80">
@@ -53,7 +59,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { getDishPage, updateDishStatus, deleteDish } from '@/api'
+import { getDishPage, getMerchantPage, updateDishStatus, deleteDish } from '@/api'
 import { ElMessage } from 'element-plus'
 import type { Dish } from '@/types'
 
@@ -62,11 +68,25 @@ const dishes = ref<Dish[]>([])
 const page = ref(1)
 const pageSize = ref(10)
 const total = ref(0)
+const merchants = ref<any[]>([])
+const merchantId = ref<number>()
+
+async function loadMerchants() {
+  try {
+    const res = await getMerchantPage({ page: 1, pageSize: 100 })
+    merchants.value = res.data?.records || []
+  } catch { /* handled */ }
+}
+
+function onMerchantChange() {
+  page.value = 1
+  fetchData()
+}
 
 async function fetchData() {
   loading.value = true
   try {
-    const res = await getDishPage({ page: page.value, pageSize: pageSize.value })
+    const res = await getDishPage({ page: page.value, pageSize: pageSize.value, merchantId: merchantId.value })
     dishes.value = res.data.records
     total.value = res.data.total
   } finally {
@@ -90,5 +110,8 @@ async function handleDelete(id: number) {
   fetchData()
 }
 
-onMounted(fetchData)
+onMounted(() => {
+  loadMerchants()
+  fetchData()
+})
 </script>

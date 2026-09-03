@@ -45,6 +45,16 @@ const loading = ref(false)
 const trendRef = ref<HTMLDivElement>()
 const stats = reactive({ todayOrders: 0, todayRevenue: '0', pendingOrders: 0, completedOrders: 0 })
 const topDishes = ref<{ name: string; sales: number }[]>([])
+const merchantId = ref<number>(0)
+
+async function loadMerchantId(): Promise<number | undefined> {
+  if (merchantId.value) return merchantId.value
+  try {
+    const res = await http.get('/merchant/info')
+    merchantId.value = res?.data?.id
+  } catch { /* handled */ }
+  return merchantId.value
+}
 
 const C = {
   primary: '#F06B18',
@@ -66,9 +76,10 @@ const statCards = computed(() => [
 async function fetchStats() {
   loading.value = true
   try {
-    const res = await http.get('/order/statistics')
+    const mid = await loadMerchantId()
+    const res = await http.get('/order/statistics', { params: { merchantId: mid } })
     Object.assign(stats, res.data)
-    const dishRes = await http.get('/dish/page', { params: { page: 1, pageSize: 5 } })
+    const dishRes = await http.get('/dish/page', { params: { page: 1, pageSize: 5, merchantId: mid } })
     topDishes.value = (dishRes.data.records || []).map((d: any) => ({ name: d.name, sales: d.sales || 0 }))
   } catch { /* use defaults */ }
   finally { loading.value = false }

@@ -302,6 +302,7 @@ const noteIdStart = 100;
 const noteCount = 220;
 const reviewIdStart = 100;
 const reviewCount = 400;
+const commentIdStart = 5000; // 评论ID（避开种子数据 1-9）
 
 // 商户 + 分类 + 菜品
 const merchantRows = [];
@@ -403,6 +404,22 @@ const noteBodies = [
   '减脂期外食首选{name}，{dish}完全不油腻，吃完没有负罪感。食材新鲜，做法健康，强烈推荐给健身的朋友们。',
 ];
 const locations = ['杭州市上城区', '杭州市西湖区', '杭州市滨江区', '杭州市拱墅区', '杭州市余杭区'];
+
+// 评论内容池（一级 + 二级回复）
+const commentContents = [
+  '看饿了！这周就去打卡', '收藏了，周末安排上', '这家真的好吃，我上次去人超多', '博主拍得也太诱人了吧',
+  '求地址，想带爸妈去', '跟着博主不踩雷', '吃过的表示确实不错', '性价比看起来很高诶', '下次去杭州就去这家',
+  '这个{cusine}看着太对味了', '已经安利给全宿舍了', '工作日中午去人会不会少点', '看起来比上次我去那家强',
+  '价格这么实惠的吗？', '馋哭了，深夜看到这个太残忍', '请问人均大概多少呀', '带娃去合适吗？', '这家店好停车吗',
+];
+const commentReplies = [
+  '同问同问！蹲一个回答', '哈哈哈我也是这么想的', '确实，实名赞同', '姐妹冲就完事了', '安排！一起约起来',
+  '别犹豫了，直接去', '信我，去了不亏', '这波种草成功', '我作证，真的不错', '哈哈哈馋死我了',
+];
+
+// 评论生成：每篇笔记 2~8 条一级评论，其中约一半带 1~3 条二级回复
+const commentRows = [];
+let commentId = commentIdStart;
 for (let n = 0; n < noteCount; n++) {
   const nid = noteIdStart + n;
   const userId = randInt(userIdStart, userIdEnd);
@@ -412,7 +429,33 @@ for (let n = 0; n < noteCount; n++) {
   const title = pick(noteTitles).replaceAll('{name}', name);
   const body = pick(noteBodies).replaceAll('{name}', name).replaceAll('{dish}', ref.name).replaceAll('{cusine}', pick(['川菜', '粤菜', '湘菜', '烧烤', '日料', '火锅', '江浙菜', '西北菜']));
   const topicTags = JSON.stringify([pick(['美食探店', '杭州吃喝', '深夜食堂', '周末聚餐', '减脂餐', '性价比']), pick(['必吃榜', '网红店', '老字号', '打卡']), pick(['面食地图', '烧烤地图', '火锅地图', '甜品地图'])]);
-  noteRows.push(`(${nid},${userId},${q(title)},${q(body)},${merchantId},${q(topicTags)},${q(pick(locations))},${randInt(0, 800)},${randInt(0, 50)},${randInt(0, 300)},${randInt(100, 8000)},1,${pick([0, 1])},${q(dt())},NOW())`);
+  const cusine = pick(['川菜', '粤菜', '湘菜', '烧烤', '日料', '火锅', '江浙菜', '西北菜']);
+
+  // 为这篇笔记生成真实评论，comment_count 取实际条数
+  const topCount = randInt(2, 8);
+  const topCommentIds = [];
+  for (let c = 0; c < topCount; c++) {
+    const cid = commentId++;
+    topCommentIds.push(cid);
+    const cu = randInt(userIdStart, userIdEnd);
+    const content = pick(commentContents).replace('{cusine}', cusine);
+    commentRows.push(`(${cid},${nid},${cu},NULL,NULL,${q(content)},${randInt(0, 50)},${q(dt())})`);
+  }
+  // 二级回复：约一半一级评论带 1~3 条回复
+  let replyCount = 0;
+  for (const pid of topCommentIds) {
+    if (Math.random() < 0.5) {
+      const rn = randInt(1, 3);
+      for (let r = 0; r < rn; r++) {
+        const rid = commentId++;
+        replyCount++;
+        const ru = randInt(userIdStart, userIdEnd);
+        commentRows.push(`(${rid},${nid},${ru},${pid},${pid},${q(pick(commentReplies))},${randInt(0, 20)},${q(dt())})`);
+      }
+    }
+  }
+  const totalComments = topCount + replyCount;
+  noteRows.push(`(${nid},${userId},${q(title)},${q(body)},${merchantId},${q(topicTags)},${q(pick(locations))},${randInt(0, 800)},${totalComments},${randInt(0, 300)},${randInt(100, 8000)},1,${pick([0, 1])},${q(dt())},NOW())`);
 }
 
 // 评价
@@ -473,7 +516,12 @@ lines.push('INSERT INTO savory_social.review (id, user_id, order_id, dish_id, ra
 lines.push(reviewRows.join(',\n') + ';');
 lines.push('');
 
+lines.push('-- 评论');
+lines.push('INSERT INTO savory_social.comment (id, note_id, user_id, parent_id, reply_to_user_id, content, like_count, create_time) VALUES');
+lines.push(commentRows.join(',\n') + ';');
+lines.push('');
+
 const out = join(__dirname, '98_mock_data.sql');
 writeFileSync(out, lines.join('\n'), 'utf-8');
 console.log(`生成完成: ${out}`);
-console.log(`商户 ${merchantRows.length}, 分类 ${categoryRows.length}, 菜品 ${dishRows.length}, 用户 ${userRows.length}, 订单 ${orderRows.length}, 明细 ${detailRows.length}, 笔记 ${noteRows.length}, 评价 ${reviewRows.length}`);
+console.log(`商户 ${merchantRows.length}, 分类 ${categoryRows.length}, 菜品 ${dishRows.length}, 用户 ${userRows.length}, 订单 ${orderRows.length}, 明细 ${detailRows.length}, 笔记 ${noteRows.length}, 评价 ${reviewRows.length}, 评论 ${commentRows.length}`);

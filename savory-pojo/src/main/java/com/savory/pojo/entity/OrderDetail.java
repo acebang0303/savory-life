@@ -20,6 +20,10 @@ public class OrderDetail {
     private Long id;
     //订单ID
     private Long orderId;
+    //菜品ID（套餐明细为 null）
+    private Long dishId;
+    //套餐ID（菜品明细为 null）
+    private Long setmealId;
     //菜品/套餐名称
     private String name;
     //图片

@@ -56,4 +56,27 @@ public class AddressBookController {
         addressBookService.setDefault(id, com.savory.common.context.BaseContext.getCurrentId());
         return Result.success();
     }
+
+    /**
+     * 修改收货地址
+     */
+    @PutMapping("/{id}")
+    @Operation(summary = "修改收货地址")
+    public Result<String> update(@PathVariable Long id, @RequestBody AddressBook addressBook) {
+        log.info("修改收货地址，id: {}", id);
+        addressBook.setId(id);
+        addressBookService.update(addressBook, com.savory.common.context.BaseContext.getCurrentId());
+        return Result.success();
+    }
+
+    /**
+     * 删除收货地址
+     */
+    @DeleteMapping("/{id}")
+    @Operation(summary = "删除收货地址")
+    public Result<String> delete(@PathVariable Long id) {
+        log.info("删除收货地址，id: {}", id);
+        addressBookService.delete(id, com.savory.common.context.BaseContext.getCurrentId());
+        return Result.success();
+    }
 }

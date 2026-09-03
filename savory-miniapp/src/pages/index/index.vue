@@ -11,14 +11,14 @@
         <text class="search-placeholder">AI智能搜索美食...</text>
       </view>
       <view class="header-right">
-        <text class="ai-badge">AI</text>
+        <text class="ai-badge" @click="goAiChat">AI</text>
       </view>
     </view>
 
-    <!-- 轮播推荐 -->
+    <!-- 轮播活动 -->
     <swiper class="banner-swiper" :indicator-dots="true" autoplay circular>
       <swiper-item v-for="b in banners" :key="b.id">
-        <view class="banner" :style="{ background: b.color }">
+        <view class="banner" :style="{ background: b.bgColor || 'linear-gradient(135deg, #FF7A3D, #F06A2E)' }" @click="goActivity(b)">
           <text class="banner-title">{{ b.title }}</text>
           <text class="banner-sub">{{ b.subtitle }}</text>
         </view>
@@ -40,11 +40,11 @@
         <text class="section-more" @click="goSeckill">更多 →</text>
       </view>
       <scroll-view scroll-x class="seckill-scroll">
-        <view class="seckill-item" v-for="sk in seckillList" :key="sk.id">
+        <view class="seckill-item" v-for="sk in seckillList" :key="sk.id" @click="goSeckill">
           <text class="seckill-price">¥{{ sk.seckillPrice }}</text>
           <text class="seckill-name">{{ sk.dishName }}</text>
           <text class="seckill-stock">仅剩{{ sk.stock }}份</text>
-          <button class="seckill-btn" @click="buySeckill(sk)">抢购</button>
+          <button class="seckill-btn" @click.stop="goSeckill">抢购</button>
         </view>
       </scroll-view>
     </view>
@@ -60,9 +60,9 @@
           <view class="shop-info">
             <text class="shop-name">{{ shop.name }}</text>
             <view class="shop-tags">
-              <text class="shop-tag">月销999+</text>
               <text class="shop-tag star">★ 4.8</text>
               <text class="shop-tag">{{ shop.deliveryRange ? (shop.deliveryRange/1000).toFixed(1) + 'km' : '3km' }}</text>
+              <text class="shop-tag">{{ shop.businessHours || '营业中' }}</text>
             </view>
             <text class="shop-desc">{{ shop.description || '品质美食，值得信赖' }}</text>
           </view>
@@ -74,12 +74,13 @@
     <!-- AI推荐菜品 -->
     <view class="section" v-if="aiDishes.length > 0">
       <view class="section-header">
-        <text class="section-title">🤖 AI为你推荐</text>
+        <text class="section-title">🤖 猜你喜欢（根据你的浏览和点赞）</text>
       </view>
       <scroll-view scroll-x class="dish-scroll">
-        <view class="dish-card" v-for="d in aiDishes" :key="d.dishId || d.id">
+        <view class="dish-card" v-for="d in aiDishes" :key="d.dishId || d.id" @click="goDish(d)">
           <image class="dish-img" :src="d.image || defaultImg" mode="aspectFill" />
           <text class="dish-name">{{ d.name }}</text>
+          <text class="dish-shop">{{ d.merchantName }}</text>
           <text class="dish-reason">{{ d.reason }}</text>
           <text class="dish-price">¥{{ d.price }}</text>
         </view>
@@ -93,67 +94,102 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
-import { getMerchantList, getSeckillList, getAiRecommend } from '@/api/index.js'
+import { onShow } from '@dcloudio/uni-app'
+import { getMerchantList, getSeckillList, getAiRecommend, getActivityList, signToday, getSignToday, reportBehavior } from '@/api/index.js'
+import { useUserStore } from '@/store/user.js'
 
+const userStore = useUserStore()
 const defaultLogo = '/static/icons/shop-default.png'
 const defaultImg = '/static/icons/dish-default.png'
 const currentCity = ref('杭州')
 const shopList = ref([])
 const seckillList = ref([])
 const aiDishes = ref([])
+const banners = ref([])
+const signedToday = ref(false)
 
-const banners = ref([
-  { id: 1, title: '深夜食堂', subtitle: '暖心夜宵限时特惠', color: 'linear-gradient(135deg, #FF7A3D, #F06A2E)' },
-  { id: 2, title: '周末约会', subtitle: 'AI为你规划完美约会路线', color: 'linear-gradient(135deg, #FFB98A, #FF7A3D)' },
-  { id: 3, title: '新人专享', subtitle: '首单立减 ¥15', color: 'linear-gradient(135deg, #E8A13C, #FF9A5A)' }
-])
+const entries = ref([])
 
-const entries = ref([
-  { key: 'seckill', icon: '⚡', text: '限时秒杀', action: () => goSeckill() },
-  { key: 'coupon', icon: '🎫', text: '优惠券', action: () => goCoupon() },
-  { key: 'sign', icon: '📅', text: '签到', action: () => doSign() },
-  { key: 'order', icon: '📋', text: '订单', action: () => goOrder() }
-])
+const buildEntries = () => {
+  entries.value = [
+    { key: 'seckill', icon: '⚡', text: '限时秒杀', action: () => goSeckill() },
+    { key: 'coupon', icon: '🎫', text: '优惠券', action: () => goCoupon() },
+    { key: 'sign', icon: '📅', text: signedToday.value ? '已签到' : '签到', action: () => doSign() },
+    { key: 'order', icon: '📋', text: '订单', action: () => goOrder() }
+  ]
+}
 
 const chooseLocation = () => {
   uni.getLocation({
     type: 'gcj02',
-    success: (res) => {
-      console.log('定位成功', res)
-      currentCity.value = '杭州市'
-    },
-    fail: () => {
-      uni.showToast({ title: '定位失败，使用默认城市', icon: 'none' })
-    }
+    success: () => { currentCity.value = '杭州市' },
+    fail: () => { /* 默认杭州 */ }
   })
 }
 
 const goSearch = () => uni.navigateTo({ url: '/pages/search/search' })
-const goShop = (id) => uni.navigateTo({ url: '/pages/shop/shop?id=' + id })
-const goSeckill = () => uni.showToast({ title: '秒杀活动开发中', icon: 'none' })
-const goCoupon = () => uni.switchTab({ url: '/pages/profile/profile' })
-const goOrder = () => uni.switchTab({ url: '/pages/profile/profile' })
+const goAiChat = () => uni.navigateTo({ url: '/pages/aichat/aichat' })
+const goShop = (id) => {
+  if (userStore.isLogin) reportBehavior('VIEW_MERCHANT', id).catch(() => {})
+  uni.navigateTo({ url: '/pages/shop/shop?id=' + id })
+}
+const goDish = (d) => {
+  if (userStore.isLogin) reportBehavior('VIEW_MERCHANT', d.merchantId).catch(() => {})
+  uni.navigateTo({ url: '/pages/shop/shop?id=' + d.merchantId })
+}
+const goSeckill = () => uni.navigateTo({ url: '/pages/seckill/seckill' })
+const goCoupon = () => uni.navigateTo({ url: '/pages/coupon/coupon' })
+const goOrder = () => uni.navigateTo({ url: '/pages/order/order' })
+
+// banner 活动跳转：1=店铺 2=秒杀 3=优惠券 4=笔记详情
+const goActivity = (b) => {
+  switch (b.type) {
+    case 1: uni.navigateTo({ url: '/pages/shop/shop?id=' + b.targetId }); break
+    case 2: uni.navigateTo({ url: '/pages/seckill/seckill' }); break
+    case 3: uni.navigateTo({ url: '/pages/coupon/coupon' }); break
+    case 4: uni.navigateTo({ url: '/pages/note/detail?id=' + b.targetId }); break
+    default: break
+  }
+}
 
 const doSign = async () => {
-  try {
-    await require('@/api/index.js').signToday()
-    uni.showToast({ title: '签到成功！', icon: 'success' })
-  } catch (e) {
+  if (!userStore.isLogin) {
     uni.showToast({ title: '请先登录', icon: 'none' })
+    uni.navigateTo({ url: '/pages/login/login' })
+    return
+  }
+  try {
+    await signToday()
+    signedToday.value = true
+    buildEntries()
+    uni.showToast({ title: '签到成功！+5成长值', icon: 'success' })
+  } catch (e) {
+    if (e.message && e.message.includes('已签到')) {
+      signedToday.value = true
+      buildEntries()
+    }
+    uni.showToast({ title: e.message || '签到失败', icon: 'none' })
   }
 }
 
-const buySeckill = async (sk) => {
+const loadSigned = async () => {
+  if (!userStore.isLogin) return
   try {
-    await require('@/api/index.js').buySeckill(sk.id)
-    uni.showToast({ title: '抢购成功！', icon: 'success' })
-  } catch (e) {
-    uni.showToast({ title: e.message || '抢购失败', icon: 'none' })
-  }
+    const today = await getSignToday()
+    signedToday.value = today?.signed || false
+  } catch (e) { /* 忽略 */ }
 }
+
+onShow(() => {
+  buildEntries()
+  loadSigned()
+})
 
 onMounted(async () => {
   chooseLocation()
+  try {
+    banners.value = await getActivityList() || []
+  } catch (e) { console.log('加载活动失败', e) }
   try {
     shopList.value = await getMerchantList() || []
   } catch (e) { console.log('加载店铺失败', e) }
@@ -162,7 +198,12 @@ onMounted(async () => {
   } catch (e) { console.log('加载秒杀失败', e) }
   try {
     const uid = uni.getStorageSync('userInfo')?.id || 1
-    aiDishes.value = JSON.parse(await getAiRecommend(uid, 8) || '[]')
+    const res = await getAiRecommend(uid, 8)
+    if (typeof res === 'string') {
+      aiDishes.value = JSON.parse(res || '[]')
+    } else {
+      aiDishes.value = res || []
+    }
   } catch (e) { console.log('AI推荐加载失败', e) }
 })
 </script>
@@ -234,13 +275,15 @@ onMounted(async () => {
 .shop-arrow { font-size: 32rpx; color: #ccc; }
 .dish-scroll { white-space: nowrap; }
 .dish-card {
-  display: inline-block; width: 220rpx; margin-right: 16rpx;
+  display: inline-block; width: 240rpx; margin-right: 16rpx;
   background: #fff; border-radius: 12rpx; overflow: hidden;
   box-shadow: $shadow; vertical-align: top;
 }
-.dish-img { width: 220rpx; height: 160rpx; background: #f0f0f0; }
+.dish-img { width: 240rpx; height: 160rpx; background: #f0f0f0; }
 .dish-name { font-size: 26rpx; font-weight: 600; padding: 8rpx 12rpx 0; display: block; }
-.dish-reason { font-size: 20rpx; color: $warning-color; padding: 4rpx 12rpx; display: block; }
+.dish-shop { font-size: 20rpx; color: #999; padding: 4rpx 12rpx 0; display: block; }
+.dish-reason { font-size: 20rpx; color: $warning-color; padding: 4rpx 12rpx; display: block;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dish-price { font-size: 28rpx; font-weight: bold; color: $primary-color; padding: 0 12rpx 12rpx; display: block; }
 .safe-bottom { height: calc(120rpx + env(safe-area-inset-bottom)); }
 </style>

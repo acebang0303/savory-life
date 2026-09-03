@@ -8,12 +8,7 @@
 import { onLaunch } from '@dcloudio/uni-app'
 
 onLaunch(() => {
-  // 检查登录状态
-  const token = uni.getStorageSync('token')
-  if (!token) {
-    // 未登录时引导登录（不强制，游客可浏览）
-    console.log('游客模式 - 部分功能需要登录后使用')
-  }
+  // 登录策略：浏览类接口游客可访问（api 层 silent 模式），交易/互动操作时再引导登录
 })
 </script>
 

@@ -1,6 +1,8 @@
 package com.savory.ai.agent;
 
+import com.savory.ai.sse.AgentEventSink;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.ai.chat.messages.Message;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
@@ -46,5 +48,14 @@ public class MerchantAgent {
             return null;
         }
         return factory.createMerchant(model, sessionId, merchantId, question);
+    }
+
+    public JChatMind execute(String model, String sessionId, String question, Long empId,
+                             List<Message> history, AgentEventSink sink) {
+        Long merchantId = resolveMerchantId(empId);
+        if (merchantId == null) {
+            return null;
+        }
+        return factory.createMerchant(model, sessionId, merchantId, question, history, sink);
     }
 }

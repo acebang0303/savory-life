@@ -37,4 +37,16 @@ public class UserCouponController {
         log.info("查询优惠券列表");
         return Result.success(couponService.list(page, pageSize));
     }
+
+    /**
+     * 可领取的优惠券模板列表
+     */
+    @GetMapping("/templates")
+    @Operation(summary = "可领取优惠券模板列表")
+    public Result<PageResult> templates(
+            @RequestParam(defaultValue = "1") Integer page,
+            @RequestParam(defaultValue = "10") Integer pageSize) {
+        log.info("查询可领取优惠券模板");
+        return Result.success(couponService.availableTemplates(page, pageSize));
+    }
 }

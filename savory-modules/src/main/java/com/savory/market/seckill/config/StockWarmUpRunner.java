@@ -33,9 +33,11 @@ public class StockWarmUpRunner implements ApplicationRunner {
                         .gt(SeckillActivity::getEndTime, LocalDateTime.now()));
         for (SeckillActivity a : activities) {
             String stockKey = "seckill:stock:" + a.getId() + ":" + a.getDishId();
-            redisExecutor.setIfAbsent(stockKey, String.valueOf(a.getStock()),
+            //用 DB 现值覆盖 Redis（DB 为权威库存源；用 set 而非 setIfAbsent，
+            //避免上次残留的 0 库存导致"DB 有货、Redis 抢光"的不一致）
+            redisExecutor.set(stockKey, String.valueOf(a.getStock()),
                     Duration.between(LocalDateTime.now(), a.getEndTime()));
-            log.info("库存预热(DB为准,setIfAbsent不覆盖): activityId={}, stock={}", a.getId(), a.getStock());
+            log.info("库存预热(DB覆盖Redis): activityId={}, stock={}", a.getId(), a.getStock());
         }
     }
 }
