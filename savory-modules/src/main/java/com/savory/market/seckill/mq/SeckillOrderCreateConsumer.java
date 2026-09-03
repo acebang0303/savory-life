@@ -52,9 +52,7 @@ public class SeckillOrderCreateConsumer {
                 try {
                     handleMessage(message);   // 0/-1/1 正常返回；失败已在此回补库存后抛出
                 } catch (OrderBusinessException e) {
-                    // 确定性失败：handleMessage 已回补库存并回滚 Redis → 确认消息，不重试
-                    log.warn("建单确定性失败，确认消息: orderNo={}, reason={}",
-                            message.orderNo(), e.getMessage());
+                    // 确定性失败：handleMessage 已回补库存并回滚 Redis 且已打 warn → 静默确认，不重试、不重复日志
                 } catch (Exception e) {
                     // 瞬时失败：handleMessage 已回补库存并回滚 Redis；已重试一次转人工，否则重试
                     if (msg.getReconsumeTimes() >= 1) {
@@ -78,12 +76,13 @@ public class SeckillOrderCreateConsumer {
      * 由 listener 决定确认还是重试。
      */
     long handleMessage(SeckillMessage message) {
-        if (orderService.seckillOrderExists(message.orderNo())) {
-            log.info("重复投递已处理，跳过: orderNo={}", message.orderNo());
-            return 0L;
-        }
         boolean deducted = false;
         try {
+            // 0. 幂等：orderNo 已建单（重复投递）→ 跳过；须在 try 内，若查询抛异常同样走下方回补+重试
+            if (orderService.seckillOrderExists(message.orderNo())) {
+                log.info("重复投递已处理，跳过: orderNo={}", message.orderNo());
+                return 0L;
+            }
             // deductStock 须在 try 内：若它抛异常(Redis/DB 故障)也走下方回补+重试，与原逻辑等价
             deducted = seckillService.deductStock(message.activityId(), message.quantity());
             if (!deducted) {
