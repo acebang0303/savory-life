@@ -1,71 +1,129 @@
 # 知味生活 · SavoryLife
 
-融合 O2O 本地生活 + 内容社区 + AI Agent 智能助手的全栈平台。
+融合 **O2O 本地生活 + 内容社区 + AI Agent 智能助手** 的全栈平台。
+
+用户端微信小程序点餐/下单/秒杀，商家端接单/备货，管理端运营，附数据大屏与 AI 智能助手（美食推荐 / 商家经营问数）。
+
+## 项目结构
+
+```
+savory-life/
+├── savory-common/            # 公共模块（常量、异常、Result、JWT 工具）
+├── savory-pojo/              # 实体 / DTO / VO
+├── savory-framework/         # 框架模块（拦截器、RocketMQ 配置、全局异常）
+├── savory-modules/           # 主应用 :8080（DDD 领域拆分，模块化单体）
+│   ├── auth/                 # 认证（JWT + RBAC，C 端微信 mock 登录）
+│   ├── user/                 # 用户（地址、成长值、行为上报）
+│   ├── merchant/             # 商户（店铺、菜品、分类、套餐）
+│   ├── trade/                # 交易（购物车、订单、支付中台、WebSocket）
+│   ├── market/               # 营销（秒杀、优惠券、签到、短链）
+│   └── social/               # 内容社区（笔记、评论、点赞、关注）
+├── savory-ai/                # AI 独立服务 :8087（Spring AI 多模型）
+├── savory-admin/             # 管理端前端 :5173 (Vue 3 + Vite + Element Plus)
+├── savory-merchant/          # 商家端前端 :5174 (Vue 3 + Vite)
+├── savory-screen/            # 数据大屏 :5175 (Vue 3 + Vite)
+├── savory-miniapp/           # 用户端微信小程序 (uni-app, 18 页)
+├── db/                       # SQL：6 库初始化 + 种子数据 + mock 生成器 + 修复脚本
+└── .github/workflows/ci.yml  # CI：JDK 21 全量 mvn test + package
+```
 
 ## 技术栈
 
-- Backend: Spring Boot 3.5, JDK 21 Virtual Threads, Spring AI 2.0, MyBatis-Plus 3.5
-- AI: DeepSeek API, pgvector, RAG, ReAct Agent, NL2SQL, Mixed Recommendation
-- Middleware: MySQL 8.0, Redis 7.x, RocketMQ 5.3, MongoDB 7.x
-- Frontend: Vue 3, Element Plus, Pinia, Vite, uni-app
+- **Backend**: Spring Boot 3.5, JDK 21 (Virtual Threads), Spring AI, MyBatis-Plus 3.5, dynamic-datasource
+- **AI**: DeepSeek / Qwen / Kimi 多模型注册表, pgvector, RAG, ReAct Agent, NL2SQL, 混合推荐
+- **Middleware**: MySQL 8.0, Redis 7.x, RocketMQ 5.3, PostgreSQL 16 + pgvector, MongoDB 7.x（Docker 统一承载）
+- **Frontend**: Vue 3, Element Plus, Pinia, Vite / uni-app
 
 ## 核心业务模块
 
 ### 交易域（trade）
-- 购物车 / 订单：Redisson 分布式锁防重 + RocketMQ 延迟消息超时取消
-- 支付中台：渠道策略模式（`IPayChannelHandler`），支持余额 / mock / 微信三渠道；微信渠道开发环境走 mock 模式，由 `/api/mock/wechat/pay-confirm` 模拟微信回调完成入账闭环
-- WebSocket 通知：RocketMQ 广播消费 + 本机连接过滤，`/ws/{userId}` 定向推送
+- 购物车 / 订单：Redisson 分布式锁防重 + RocketMQ 延迟消息超时取消（CAS 条件更新防误关已支付订单）
+- 支付中台：渠道策略模式（余额 / mock / 微信），验签 + 金额校验 + CAS 幂等入账
+- WebSocket 通知：RocketMQ 广播 + 本机连接过滤，`/ws/{userId}` 定向推送
 
 ### 营销域（market）
-- 秒杀：Redis Lua 原子扣库存 + 限购 → MQ 异步落库 → 延迟消息超时回补库存
-- 优惠券 / 签到
+- **秒杀**：Redis Lua 原子预扣（防超卖/限购）→ **RocketMQ 事务消息**（扣库存与建单原子绑定，broker 回查兜底）→ 异步落库 → 延迟消息超时回补库存
+- 秒杀保护：Redis 三态熔断器 + Redisson 令牌桶限流 + 定时对账（Redis vs DB 收敛）
+- 优惠券 / 签到（成长值联动）
 
 ### 社交域（social）
-- 笔记 / 评价 / 关注
-- 点赞：Redis 攒批 + 热点聚合 + 定时对账（DB 基线预热）
+- 笔记 / 评价 / 关注 / 二级评论树 / 标签跳转（店铺或搜索）
+- 点赞：Redis 攒批 + 热点聚合 + 定时对账
+
+### 用户域（user / auth）
+- C 端微信登录（dev 用 mock-login），成长值体系（签到 +5 / 下单 +10 / 发笔记 +5）
 
 ### AI 服务（savory-ai）
-- ReAct Agent / NL2SQL 智能问数 / 混合推荐
+- JChatMind ReAct Agent Loop / NL2SQL 商家问数 / 混合推荐（行为 + 语义向量 + 热度兜底）
+
+## 环境要求
+
+- JDK 21 + Maven 3.9+
+- Node.js 22+
+- Docker Desktop（MySQL / Redis / RocketMQ / PostgreSQL+pgvector / MongoDB）
+- 微信开发者工具（跑小程序，导入 `savory-miniapp/dist/build/mp-weixin`）
 
 ## 快速开始
 
-### 环境要求
-- JDK 21+
-- Maven 3.9+
-- Node.js 22+
-- Docker Desktop（统一承载 MySQL / Redis / RocketMQ / PostgreSQL+pgvector / MongoDB）
+### 1. 配置环境变量
+仓库根 `.env.example` → 复制为 `.env`（含各中间件连接、JWT 密钥、模型 API Key）。
 
-### 1. 启动中间件
+### 2. 启动中间件
 ```bash
-docker compose up -d
+docker compose -f docker-compose.yml up -d
 ```
 
-### 2. 初始化数据库
+### 3. 初始化数据库
 ```bash
 docker exec -i savory-mysql mysql -uroot -proot123 < db/init_all.sql
+# 可选：更大规模演示数据
+docker exec -i savory-mysql mysql -uroot -proot123 < db/98_mock_data.sql
+# AI 服务依赖 pgvector（PostgreSQL），单独执行：
+docker exec -i savory-postgres psql -U postgres -d savory_ai -f /dev/stdin < db/07_pgvector.sql
 ```
+> 注：MySQL 容器已统一为东八区时区（`TZ=Asia/Shanghai`），与应用 JDBC、Java 时间对齐。
 
-### 3. 启动主应用
+### 4. 启动后端（主应用 + AI）
 ```bash
-cd savory-modules
-mvn spring-boot:run -Dspring-boot.run.jvmArguments="--enable-preview"
+cd savory-modules && mvn spring-boot:run     # 主应用 :8080
+cd savory-ai && mvn spring-boot:run          # AI 服务 :8087
 ```
-
-### 4. 启动 AI 服务
-```bash
-cd savory-ai
-mvn spring-boot:run -Dspring-boot.run.jvmArguments="--enable-preview"
-```
+> 改过 savory-common / pojo / framework 后，需先 `mvn install -pl savory-common,savory-pojo,savory-framework -DskipTests` 再启动。
 
 ### 5. 启动前端
 ```bash
-cd savory-admin && npm run dev      # 管理端 :5173
-cd savory-merchant && npm run dev   # 商家端 :5174
-cd savory-screen && npm run dev     # 数据大屏 :5175
+cd savory-admin && npm run dev     # 管理端 :5173
+cd savory-merchant && npm run dev  # 商家端 :5174
+cd savory-screen && npm run dev    # 数据大屏 :5175
 ```
 
-### 访问接口文档
-http://localhost:8080/swagger-ui/index.html
+### 6. 小程序
+```bash
+cd savory-miniapp && npm install
+npm run dev:mp-weixin    # 开发：生成到 dist/dev/mp-weixin，微信开发者工具导入
+npm run build:mp-weixin # 构建：dist/build/mp-weixin
+```
 
-主应用接口文档：http://localhost:8080/swagger-ui/index.html
-AI 服务健康：http://localhost:8087/actuator/health
+### 接口与文档
+- Swagger（主应用）：http://localhost:8080/swagger-ui/index.html
+- AI 服务健康：http://localhost:8087/actuator/health
+
+## 测试与质量
+
+```bash
+# 后端全量测试（CI 同款，含 AI 模块）
+mvn -B test
+
+# 秒杀并发压测（需后端运行 + 造测试活动）
+cd savory-modules/src/test/jmeter
+bash gen_tokens.sh 500        # 生成压测 token
+bash run_load.sh <活动ID> <菜品ID> 500   # JMeter 500 并发
+```
+基准记录见 `savory-modules/src/test/jmeter/BENCHMARK.md`。
+
+## 关键设计
+
+- **模块化单体**而非微服务：DDD 领域拆分，为平滑迁移微服务预留结构
+- **AI 服务独立部署**：性能特征不同 + 独立数据库依赖
+- **单数据源策略**：开发期 6 库共享一个 MySQL 实例，dynamic-datasource `@DS` 路由
+- **秒杀资金安全**：Redis Lua 原子预扣 + 事务消息 + DB CAS 兜底 + 对账收敛，多层防超卖
