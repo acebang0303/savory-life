@@ -93,6 +93,12 @@
             <groupId>org.springdoc</groupId>
             <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
         </dependency>
+        <!-- springdoc 2.8.0 用 Kotlin 2.1.0 编译，纯 Java 项目解析 OpenAPI 时缺 kotlin.reflect.full.KClasses -->
+        <dependency>
+            <groupId>org.jetbrains.kotlin</groupId>
+            <artifactId>kotlin-reflect</artifactId>
+            <version>2.1.20</version>
+        </dependency>
         <dependency>
             <groupId>com.github.wechatpay-apiv3</groupId>
             <artifactId>wechatpay-java</artifactId>

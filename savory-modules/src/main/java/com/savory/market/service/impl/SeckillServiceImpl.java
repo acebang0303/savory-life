@@ -7,20 +7,35 @@ import com.savory.common.context.BaseContext;
 import com.savory.common.constant.MessageConstant;
 import com.savory.common.exception.OrderBusinessException;
 import com.savory.common.result.PageResult;
+import cn.hutool.core.util.IdUtil;
+import com.alibaba.fastjson2.JSON;
 import com.savory.market.dto.SeckillBuyDTO;
 import com.savory.market.mapper.SeckillActivityMapper;
+import com.savory.market.seckill.mq.SeckillMessage;
 import com.savory.market.service.SeckillService;
+import com.savory.merchant.mapper.DishMapper;
+import com.savory.merchant.mapper.MerchantInfoMapper;
+import com.savory.pojo.entity.Dish;
 import com.savory.pojo.entity.SeckillActivity;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.rocketmq.client.producer.LocalTransactionState;
+import org.apache.rocketmq.client.producer.TransactionMQProducer;
+import org.apache.rocketmq.client.producer.TransactionSendResult;
+import org.apache.rocketmq.common.message.Message;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * 秒杀服务实现类
@@ -40,13 +55,29 @@ public class SeckillServiceImpl implements SeckillService {
     private SeckillActivityMapper seckillActivityMapper;
 
     @Autowired
+    private DishMapper dishMapper;
+
+    @Autowired
+    private MerchantInfoMapper merchantInfoMapper;
+
+    @Autowired
     private RedisTemplate<String, Object> redisTemplate;
 
-    //Redis Lua脚本: 原子执行秒杀逻辑
+    @Autowired
+    private StringRedisTemplate stringRedisTemplate;
+
+    @Autowired
+    private TransactionMQProducer transactionProducer;
+
+    private static final String PRE_DEDUCT_KEY = "seckill:prededuct:";
+    private static final String FAIL_REASON_KEY = "seckill:failreason:";
+    private static final String SECKILL_ORDER_TOPIC = "seckill-order-topic";
+
+    //Redis Lua脚本: 原子执行秒杀逻辑（限购用 HINCRBY 计数，支持按用户回滚）
     private static final String SECKILL_LUA_SCRIPT =
-            "-- 秒杀Lua脚本: 校验时间窗口 + 查重 + 扣库存\n" +
+            "-- 秒杀Lua脚本: 校验库存 + 限购计数 + 扣库存\n" +
             "local stockKey = KEYS[1]       -- seckill:stock:{activityId}:{dishId}\n" +
-            "local userKey = KEYS[2]        -- seckill:users:{activityId}\n" +
+            "local userKey = KEYS[2]        -- seckill:users:{activityId} (HASH: field=userId, value=已购数量)\n" +
             "local userId = ARGV[1]\n" +
             "local limitPerUser = tonumber(ARGV[2])\n" +
             "\n" +
@@ -56,17 +87,15 @@ public class SeckillServiceImpl implements SeckillService {
             "    return -1  -- 库存不足\n" +
             "end\n" +
             "\n" +
-            "-- 2. 检查是否重复下单\n" +
-            "local userCount = redis.call('SISMEMBER', userKey, userId)\n" +
-            "if userCount == 1 then\n" +
-            "    return -2  -- 重复秒杀\n" +
+            "-- 2. 检查限购\n" +
+            "local userCount = tonumber(redis.call('HGET', userKey, userId) or '0')\n" +
+            "if userCount >= limitPerUser then\n" +
+            "    return -2  -- 超过限购\n" +
             "end\n" +
             "\n" +
-            "-- 3. 扣减库存\n" +
+            "-- 3. 扣减库存 + 限购计数\n" +
             "redis.call('DECR', stockKey)\n" +
-            "\n" +
-            "-- 4. 记录用户（防重）\n" +
-            "redis.call('SADD', userKey, userId)\n" +
+            "redis.call('HINCRBY', userKey, userId, 1)\n" +
             "\n" +
             "return 1  -- 秒杀成功";
 
@@ -91,15 +120,90 @@ public class SeckillServiceImpl implements SeckillService {
 
         //2、执行分页查询
         Page<SeckillActivity> result = seckillActivityMapper.selectPage(p, wrapper);
+
+        //3、按当前时间动态计算状态（未开始/进行中/已结束），随时间推移自动变化
+        LocalDateTime now = LocalDateTime.now();
+        result.getRecords().forEach(a -> a.setStatus(calcStatus(a, now)));
+        fillDishInfo(result.getRecords());
         return new PageResult(result.getTotal(), result.getRecords());
     }
 
     @Override
     public List<SeckillActivity> listRunning() {
-        //1、查询进行中的秒杀活动
+        //1、查询进行中的秒杀活动（按时间窗口过滤，不依赖静态 status）
+        LocalDateTime now = LocalDateTime.now();
         LambdaQueryWrapper<SeckillActivity> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(SeckillActivity::getStatus, 1);  //进行中
-        return seckillActivityMapper.selectList(wrapper);
+        wrapper.le(SeckillActivity::getStartTime, now)
+               .ge(SeckillActivity::getEndTime, now);
+        List<SeckillActivity> list = seckillActivityMapper.selectList(wrapper);
+        //2、实时库存：优先取 Redis（与购买用同一数据源），避免"列表显示 20 实际已抢光"
+        list.forEach(a -> {
+            a.setStatus(1);
+            String stockKey = "seckill:stock:" + a.getId() + ":" + a.getDishId();
+            String redisStock = stringRedisTemplate.opsForValue().get(stockKey);
+            if (redisStock != null) {
+                try {
+                    a.setStock(Integer.valueOf(redisStock));
+                } catch (NumberFormatException ignored) {
+                }
+            }
+        });
+        fillDishInfo(list);
+        return list;
+    }
+
+    /**
+     * 批量填充秒杀菜品的菜品名/店铺名（跨库查 dish / merchant_info）
+     */
+    private void fillDishInfo(List<SeckillActivity> activities) {
+        if (activities == null || activities.isEmpty()) {
+            return;
+        }
+        List<Long> dishIds = activities.stream()
+                .map(SeckillActivity::getDishId)
+                .filter(java.util.Objects::nonNull)
+                .distinct()
+                .collect(Collectors.toList());
+        if (dishIds.isEmpty()) {
+            return;
+        }
+        List<Dish> dishes = dishMapper.selectBatchIds(dishIds);
+        Map<Long, Dish> dishMap = dishes.stream()
+                .collect(Collectors.toMap(Dish::getId, d -> d));
+        List<Long> merchantIds = dishes.stream()
+                .map(Dish::getMerchantId)
+                .filter(java.util.Objects::nonNull)
+                .distinct()
+                .collect(Collectors.toList());
+        Map<Long, String> merchantMap = merchantIds.isEmpty() ? java.util.Collections.emptyMap()
+                : merchantInfoMapper.selectBatchIds(merchantIds).stream()
+                        .collect(Collectors.toMap(
+                                com.savory.pojo.entity.MerchantInfo::getId,
+                                com.savory.pojo.entity.MerchantInfo::getName,
+                                (a, b) -> a));
+        activities.forEach(a -> {
+            Dish dish = dishMap.get(a.getDishId());
+            if (dish != null) {
+                a.setDishName(dish.getName());
+                a.setMerchantName(merchantMap.getOrDefault(dish.getMerchantId(), ""));
+            }
+        });
+    }
+
+    /**
+     * 动态计算活动状态：0未开始 1进行中 2已结束
+     */
+    private int calcStatus(SeckillActivity activity, LocalDateTime now) {
+        if (activity.getStartTime() == null || activity.getEndTime() == null) {
+            return 1;
+        }
+        if (now.isBefore(activity.getStartTime())) {
+            return 0;
+        }
+        if (now.isAfter(activity.getEndTime())) {
+            return 2;
+        }
+        return 1;
     }
 
     @Override
@@ -113,13 +217,10 @@ public class SeckillServiceImpl implements SeckillService {
         Long userId = BaseContext.getCurrentId();
         Long activityId = dto.getActivityId();
 
-        //1、查询秒杀活动信息
         SeckillActivity activity = seckillActivityMapper.selectById(activityId);
         if (activity == null) {
             throw new OrderBusinessException("秒杀活动不存在");
         }
-
-        //2、服务端二次校验时间窗口
         LocalDateTime now = LocalDateTime.now();
         if (now.isBefore(activity.getStartTime())) {
             throw new OrderBusinessException(MessageConstant.SECKILL_NOT_STARTED);
@@ -128,34 +229,134 @@ public class SeckillServiceImpl implements SeckillService {
             throw new OrderBusinessException(MessageConstant.SECKILL_ENDED);
         }
 
-        //3、执行Lua脚本进行原子秒杀
+        String orderNo = IdUtil.getSnowflakeNextIdStr();
+        SeckillMessage message = new SeckillMessage(
+                orderNo, userId, activityId, dto.getDishId(), 1, activity.getSeckillPrice());
+
+        // 事务消息：本地事务(preDeduct)由 listener 执行，与消息投递原子化
+        TransactionSendResult sendResult;
+        try {
+            sendResult = transactionProducer.sendMessageInTransaction(
+                    new Message(SECKILL_ORDER_TOPIC,
+                            JSON.toJSONString(message).getBytes(StandardCharsets.UTF_8)),
+                    message);
+        } catch (Exception e) {
+            // 半消息发送失败：本地事务未执行，库存未扣，直接报错即可
+            log.error("秒杀事务消息发送失败: userId={}, activityId={}, orderNo={}", userId, activityId, orderNo, e);
+            throw new OrderBusinessException("秒杀请求繁忙，请稍后重试");
+        }
+
+        if (sendResult.getLocalTransactionState() == LocalTransactionState.ROLLBACK_MESSAGE) {
+            throw buildPreDeductFailException(orderNo);
+        }
+        log.info("秒杀事务消息已发送，userId: {}, activityId: {}, orderNo: {}", userId, activityId, orderNo);
+        return Long.valueOf(orderNo);
+    }
+
+    /**
+     * 依据预扣失败原因构造秒杀异常：存在 "repeat" 标记 → 重复秒杀，否则默认售罄。
+     */
+    private OrderBusinessException buildPreDeductFailException(String orderNo) {
+        String reasonKey = FAIL_REASON_KEY + orderNo;
+        String reason = stringRedisTemplate.opsForValue().get(reasonKey);
+        if (reason != null) {
+            stringRedisTemplate.delete(reasonKey);
+        }
+        if ("repeat".equals(reason)) {
+            return new OrderBusinessException(MessageConstant.SECKILL_REPEAT);
+        }
+        return new OrderBusinessException(MessageConstant.SECKILL_STOCK_OUT);
+    }
+
+    /**
+     * 抽取私有 Lua 执行方法：校验库存 + 限购 + 扣减，返回原始返回码。
+     * 返回码：1=预扣成功，-1=库存不足，-2=超过限购；null（Redis 异常）归一化为 0，按售罄处理。
+     */
+    private long executeSeckillLua(Long activityId, Long dishId, Long userId, int limitPerUser) {
         DefaultRedisScript<Long> redisScript = new DefaultRedisScript<>();
         redisScript.setScriptText(SECKILL_LUA_SCRIPT);
         redisScript.setResultType(Long.class);
-
-        String stockKey = "seckill:stock:" + activityId + ":" + dto.getDishId();
+        String stockKey = "seckill:stock:" + activityId + ":" + dishId;
         String userKey = "seckill:users:" + activityId;
-
-        Long result = redisTemplate.execute(
-                redisScript,
+        Long result = stringRedisTemplate.execute(redisScript,
                 Arrays.asList(stockKey, userKey),
-                userId.toString(),
-                activity.getLimitPerUser().toString()
-        );
+                userId.toString(), String.valueOf(limitPerUser));
+        return result == null ? 0L : result;
+    }
 
-        //4、根据Lua脚本返回值处理结果
-        if (result == -1) {
-            throw new OrderBusinessException(MessageConstant.SECKILL_STOCK_OUT);
-        } else if (result == -2) {
-            throw new OrderBusinessException(MessageConstant.SECKILL_REPEAT);
+    @Override
+    public boolean preDeductSeckillStock(SeckillMessage message) {
+        SeckillActivity activity = seckillActivityMapper.selectById(message.activityId());
+        if (activity == null) {
+            return false;
+        }
+        long result = executeSeckillLua(message.activityId(), message.dishId(),
+                message.userId(), activity.getLimitPerUser());
+        if (result == 1) {
+            String key = PRE_DEDUCT_KEY + message.orderNo();
+            long ttlSeconds = Math.max(30 * 60L,
+                    java.time.Duration.between(java.time.LocalDateTime.now(), activity.getEndTime()).getSeconds());
+            try {
+                stringRedisTemplate.opsForValue().set(key, "1", java.time.Duration.ofSeconds(ttlSeconds));
+            } catch (Exception e) {
+                // 标记写失败：回补已扣库存，返回 false 触发消息回滚
+                revertRedisStock(message.activityId(), message.dishId(),
+                        message.userId(), message.quantity());
+                log.error("秒杀预扣标记写失败，已回滚库存: orderNo={}", message.orderNo(), e);
+                return false;
+            }
+            return true;
+        }
+        if (result == -2) {
+            // 超限购：写短 TTL 失败原因标记，供 seckillBuy 区分「重复秒杀」与「售罄」
+            try {
+                stringRedisTemplate.opsForValue().set(FAIL_REASON_KEY + message.orderNo(),
+                        "repeat", java.time.Duration.ofSeconds(10));
+            } catch (Exception e) {
+                log.warn("秒杀限购失败原因标记写失败，将按售罄提示: orderNo={}", message.orderNo(), e);
+            }
+        }
+        // -1 售罄（或 0 异常）：不写标记，默认售罄
+        return false;
+    }
+
+    @Override
+    public boolean isPreDeducted(String orderNo) {
+        return Boolean.TRUE.equals(stringRedisTemplate.hasKey(PRE_DEDUCT_KEY + orderNo));
+    }
+
+    @Override
+    public boolean deductStock(Long activityId, int quantity) {
+        return seckillActivityMapper.deductStock(activityId, quantity) > 0;
+    }
+
+    @Override
+    public void restoreStock(Long activityId, int quantity) {
+        seckillActivityMapper.restoreStock(activityId, quantity);
+    }
+
+    @Override
+    public void revertRedisStock(Long activityId, Long dishId, Long userId, int quantity) {
+        String stockKey = "seckill:stock:" + activityId + ":" + dishId;
+        String userKey = "seckill:users:" + activityId;
+        redisTemplate.opsForValue().increment(stockKey, quantity);
+        redisTemplate.opsForHash().increment(userKey, String.valueOf(userId), -quantity);
+    }
+
+    @Override
+    public void restoreSeckillOnTimeout(Long activityId, Long userId) {
+        //1、查活动拿 dishId（订单表只存 activityId，dishId 经活动反查）
+        SeckillActivity activity = seckillActivityMapper.selectById(activityId);
+        if (activity == null) {
+            log.warn("秒杀活动不存在，跳过库存回补: activityId={}", activityId);
+            return;
         }
 
-        log.info("秒杀成功，userId: {}, activityId: {}, dishId: {}", userId, activityId, dto.getDishId());
+        //2、回补 DB 库存（秒杀下单时已 deductStock）
+        seckillActivityMapper.restoreStock(activityId, 1);
 
-        //5、发送RocketMQ消息异步创建订单
-        //TODO: producer.send(seckillOrderMessage)
-
-        //6、此处返回预占的订单标识，实际订单在MQ消费者中创建
-        return userId; // 临时返回userId
+        //3、回补 Redis 库存 + 用户限购计数
+        revertRedisStock(activityId, activity.getDishId(), userId, 1);
+        log.info("秒杀订单超时回补完成: activityId={}, dishId={}, userId={}", activityId, activity.getDishId(), userId);
     }
 }

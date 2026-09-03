@@ -1,66 +1,180 @@
 package com.savory.ai.controller;
 
+import com.savory.ai.agent.AgentRuntimeFactory;
 import com.savory.ai.agent.AuditAgent;
+import com.savory.ai.agent.ConversationHistoryLoader;
 import com.savory.ai.agent.ExploreAgent;
+import com.savory.ai.agent.JChatMind;
 import com.savory.ai.agent.MerchantAgent;
+import com.savory.ai.dto.AgentChatRequest;
+import com.savory.ai.dto.AgentChatResponse;
 import com.savory.ai.dto.AgentEvent;
-import io.micrometer.core.instrument.MeterRegistry;
-import io.micrometer.core.instrument.Timer;
+import com.savory.ai.service.AgentChatService;
+import com.savory.ai.service.ConversationService;
+import com.savory.ai.sse.AgentEventSink;
+import com.savory.ai.sse.ListEventSink;
+import com.savory.ai.sse.SseEventSink;
+import com.savory.ai.sse.SseService;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.ai.chat.messages.Message;
 import org.springframework.http.MediaType;
-import org.springframework.http.codec.ServerSentEvent;
-import org.springframework.web.bind.annotation.*;
-import reactor.core.publisher.Flux;
-import reactor.core.publisher.Mono;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+
+import java.util.List;
+import java.util.UUID;
+import java.util.concurrent.Executor;
+import java.util.concurrent.Executors;
 
 /**
- * AI Agent 对话接口（SSE流式输出）
- * Event 类型: thinking → message → done
+ * AI Agent 对话接口（SSE 推送式）。
+ * 建立连接后异步执行 Agent Loop，运行时内部通过 SseService 主动推送。
  */
 @RestController
 @RequestMapping("/ai")
 @Slf4j
 public class AgentController {
 
-    @Autowired
-    private ExploreAgent exploreAgent;
+    private static final Executor EXECUTOR = Executors.newVirtualThreadPerTaskExecutor();
 
-    @Autowired
-    private MerchantAgent merchantAgent;
+    private final ExploreAgent exploreAgent;
+    private final MerchantAgent merchantAgent;
+    private final AuditAgent auditAgent;
+    private final SseService sseService;
+    private final AgentChatService agentChatService;
+    private final AgentRuntimeFactory agentRuntimeFactory;
+    private final ConversationService conversationService;
+    private final SseEventSink sseEventSink;
 
-    @Autowired
-    private AuditAgent auditAgent;
+    public AgentController(ExploreAgent exploreAgent,
+                           MerchantAgent merchantAgent,
+                           AuditAgent auditAgent,
+                           SseService sseService,
+                           AgentChatService agentChatService,
+                           AgentRuntimeFactory agentRuntimeFactory,
+                           ConversationService conversationService,
+                           SseEventSink sseEventSink) {
+        this.exploreAgent = exploreAgent;
+        this.merchantAgent = merchantAgent;
+        this.auditAgent = auditAgent;
+        this.sseService = sseService;
+        this.agentChatService = agentChatService;
+        this.agentRuntimeFactory = agentRuntimeFactory;
+        this.conversationService = conversationService;
+        this.sseEventSink = sseEventSink;
+    }
 
-    @Autowired
-    private MeterRegistry meterRegistry;
-
-    /**
-     * 探店助手Agent对话（SSE流式输出）
-     */
     @GetMapping(value = "/agent/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public Flux<ServerSentEvent<AgentEvent>> exploreChat(@RequestParam String message) {
-        log.info("探店助手SSE对话: {}", message);
-        Timer.Sample sample = Timer.start(meterRegistry);
-        return toSse(exploreAgent.execute(message))
-                .doFinally(sig -> sample.stop(meterRegistry.timer("savory.ai.agent.explore")));
+    public SseEmitter exploreChat(@RequestParam String message,
+                                  @RequestParam Long userId,
+                                  @RequestParam(defaultValue = "deepseek") String model,
+                                  @RequestParam(required = false) String conversationId) {
+        String sessionId = UUID.randomUUID().toString();
+        SseEmitter emitter = sseService.connect(sessionId);
+        EXECUTOR.execute(() -> {
+            String convId = conversationId;
+            if (convId == null || convId.isBlank()) {
+                convId = conversationService.createConversation(userId, "EXPLORE");
+            }
+            final String finalConvId = convId;
+            ListEventSink buffer = new ListEventSink();
+            AgentEventSink sink = (sid, event) -> {
+                buffer.send(sid, event);
+                sseEventSink.send(sid, event);
+            };
+            try {
+                List<Message> history = loadHistory(finalConvId);
+                exploreAgent.execute(model, sessionId, message, history, sink).run();
+                persistRound(finalConvId, message, buffer);
+            } catch (Exception e) {
+                log.error("探店助手执行失败", e);
+                sseService.send(sessionId, new AgentEvent("error", e.getMessage()));
+            } finally {
+                sseService.send(sessionId, new AgentEvent("done", String.valueOf(finalConvId)));
+                sseService.close(sessionId);
+            }
+        });
+        return emitter;
     }
 
-    /**
-     * 商家经营助手对话（SSE流式输出）
-     */
     @GetMapping(value = "/merchant/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public Flux<ServerSentEvent<AgentEvent>> merchantChat(@RequestParam String question,
-                                                          @RequestParam Long empId) {
-        log.info("商家经营助手对话: empId={}, question={}", empId, question);
-        Timer.Sample sample = Timer.start(meterRegistry);
-        return toSse(merchantAgent.execute(question, empId))
-                .doFinally(sig -> sample.stop(meterRegistry.timer("savory.ai.agent.merchant")));
+    public SseEmitter merchantChat(@RequestParam String question,
+                                   @RequestParam Long empId,
+                                   @RequestParam(defaultValue = "deepseek") String model,
+                                   @RequestParam(required = false) String conversationId) {
+        String sessionId = UUID.randomUUID().toString();
+        SseEmitter emitter = sseService.connect(sessionId);
+        EXECUTOR.execute(() -> {
+            String convId = conversationId;
+            if (convId == null || convId.isBlank()) {
+                convId = conversationService.createConversation(empId, "MERCHANT");
+            }
+            final String finalConvId = convId;
+            ListEventSink buffer = new ListEventSink();
+            AgentEventSink sink = (sid, event) -> {
+                buffer.send(sid, event);
+                sseEventSink.send(sid, event);
+            };
+            try {
+                List<Message> history = loadHistory(finalConvId);
+                JChatMind runtime = merchantAgent.execute(model, sessionId, question, empId, history, sink);
+                if (runtime == null) {
+                    sink.send(sessionId, new AgentEvent("message",
+                            "未找到对应的商户信息，请联系管理员确认账号绑定。"));
+                } else {
+                    runtime.run();
+                }
+                persistRound(finalConvId, question, buffer);
+            } catch (Exception e) {
+                log.error("商家助手执行失败", e);
+                sseService.send(sessionId, new AgentEvent("error", e.getMessage()));
+            } finally {
+                sseService.send(sessionId, new AgentEvent("done", String.valueOf(finalConvId)));
+                sseService.close(sessionId);
+            }
+        });
+        return emitter;
     }
 
-    /**
-     * AI内容审核（内部调用接口）
-     */
+    @GetMapping(value = "/admin/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter adminChat(@RequestParam String message,
+                                @RequestParam Long empId,
+                                @RequestParam(defaultValue = "deepseek") String model,
+                                @RequestParam(required = false) String conversationId) {
+        String sessionId = UUID.randomUUID().toString();
+        SseEmitter emitter = sseService.connect(sessionId);
+        EXECUTOR.execute(() -> {
+            String convId = conversationId;
+            if (convId == null || convId.isBlank()) {
+                convId = conversationService.createConversation(empId, "ADMIN");
+            }
+            final String finalConvId = convId;
+            ListEventSink buffer = new ListEventSink();
+            AgentEventSink sink = (sid, event) -> {
+                buffer.send(sid, event);
+                sseEventSink.send(sid, event);
+            };
+            try {
+                List<Message> history = loadHistory(finalConvId);
+                JChatMind runtime = agentRuntimeFactory.createAdmin(model, sessionId, empId, message, history, sink);
+                runtime.run();
+                persistRound(finalConvId, message, buffer);
+            } catch (Exception e) {
+                log.error("管理端助手执行失败", e);
+                sseService.send(sessionId, new AgentEvent("error", e.getMessage()));
+            } finally {
+                sseService.send(sessionId, new AgentEvent("done", String.valueOf(finalConvId)));
+                sseService.close(sessionId);
+            }
+        });
+        return emitter;
+    }
+
     @PostMapping("/audit/content")
     public Object contentAudit(@RequestParam String content,
                                @RequestParam(defaultValue = "note") String contentType) {
@@ -68,30 +182,34 @@ public class AgentController {
         return auditAgent.audit(content, contentType);
     }
 
-    /**
-     * 将裸 token 流组装为结构化 SSE 事件（thinking → message → done）
-     * message 按句/段合并，避免逐字输出
-     */
-    private Flux<ServerSentEvent<AgentEvent>> toSse(Flux<String> content) {
-        Flux<AgentEvent> messageEvents = content
-                .filter(c -> c != null && !c.isEmpty())
-                .bufferUntil(this::isSentenceEnd)
-                .map(chunks -> new AgentEvent("message", String.join("", chunks)))
-                .filter(e -> !e.content().isEmpty());
-
-        return Flux.concat(
-                Mono.just(event(new AgentEvent("thinking", "正在思考..."))),
-                messageEvents.map(e -> event(e)),
-                Mono.just(event(new AgentEvent("done", "")))
-        );
+    @PostMapping(value = "/agent/chat", produces = MediaType.APPLICATION_JSON_VALUE)
+    public AgentChatResponse chat(@RequestBody AgentChatRequest request) {
+        log.info("Agent非流式对话: type={}, model={}", request.getAgentType(), request.getModel());
+        return agentChatService.chat(request);
     }
 
-    private boolean isSentenceEnd(String chunk) {
-        return chunk.endsWith("。") || chunk.endsWith("！")
-                || chunk.endsWith("？") || chunk.endsWith("\n");
+    private List<Message> loadHistory(String conversationId) {
+        if (conversationId == null || conversationId.isBlank()) {
+            return List.of();
+        }
+        return ConversationHistoryLoader.toMessages(
+                conversationService.getRecentMessages(conversationId, 10));
     }
 
-    private ServerSentEvent<AgentEvent> event(AgentEvent e) {
-        return ServerSentEvent.builder(e).event(e.type()).build();
+    private void persistRound(String convId, String userMsg, ListEventSink buffer) {
+        String answer = buffer.getEvents().stream()
+                .filter(e -> "message".equals(e.type()))
+                .map(AgentEvent::content)
+                .reduce("", (a, b) -> a + b);
+        List<String> toolNames = buffer.getEvents().stream()
+                .filter(e -> "action".equals(e.type()))
+                .map(e -> {
+                    String c = e.content() == null ? "" : e.content();
+                    String[] p = c.trim().split("\\s+");
+                    return p.length > 1 ? p[1] : c.trim();
+                })
+                .distinct()
+                .toList();
+        ConversationHistoryLoader.persistRound(conversationService, convId, userMsg, answer, toolNames);
     }
 }

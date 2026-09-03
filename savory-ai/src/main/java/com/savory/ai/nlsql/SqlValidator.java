@@ -3,7 +3,10 @@ package com.savory.ai.nlsql;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
+import java.util.HashSet;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * SQL安全校验器
@@ -49,14 +52,34 @@ public class SqlValidator {
     );
 
     /**
-     * 校验SQL安全性
-     *
-     * @param sql LLM生成的SQL语句
-     * @return 是否安全
+     * 校验SQL安全性（不带表白名单）
      */
     public boolean validate(String sql) {
+        return validate(sql, null);
+    }
+
+    /**
+     * 校验SQL安全性（带表白名单：FROM/JOIN 出现的表必须全部在允许集合内）
+     *
+     * @param sql LLM生成的SQL语句
+     * @param allowedTables 允许访问的表名集合（全限定名，如 "savory_trade.orders"；null 表示不限制表）
+     * @return 是否安全
+     */
+    public boolean validate(String sql, Set<String> allowedTables) {
         if (sql == null || sql.isEmpty()) {
             log.warn("SQL校验失败: SQL为空");
+            return false;
+        }
+
+        // 剥离注释与字符串字面量后，检测「中间」的多语句分号
+        String noComment = sql.replaceAll("/\\*.*?\\*/", "").replaceAll("--[^\\n]*", "");
+        String stripped = stripStrings(noComment).trim();
+        // 去掉末尾单个分号（单条语句允许以 ; 结尾），仅拦截中间的语句分隔分号
+        if (stripped.endsWith(";")) {
+            stripped = stripped.substring(0, stripped.length() - 1).trim();
+        }
+        if (stripped.contains(";")) {
+            log.warn("SQL校验失败: 检测到多语句");
             return false;
         }
 
@@ -106,7 +129,42 @@ public class SqlValidator {
             return false;
         }
 
+        //7、表白名单校验：FROM/JOIN 出现的表必须全部在允许集合内
+        if (allowedTables != null && !allowedTables.isEmpty()) {
+            Set<String> tables = extractTables(upperSql);
+            for (String table : tables) {
+                if (!allowedTables.contains(table)) {
+                    log.warn("SQL校验失败: 访问了白名单外数据表 {} - {}", table, sql);
+                    return false;
+                }
+            }
+        }
+
         log.info("SQL校验通过: {}", sql.substring(0, Math.min(200, sql.length())));
         return true;
+    }
+
+    /**
+     * 提取 SQL 中 FROM/JOIN 出现的表名（全限定名，小写）
+     */
+    private Set<String> extractTables(String sql) {
+        Set<String> tables = new HashSet<>();
+        Pattern p = Pattern.compile("(?i)\\b(?:FROM|JOIN)\\s+([a-z0-9_]+(?:\\.[a-z0-9_]+)?)");
+        Matcher m = p.matcher(sql);
+        while (m.find()) {
+            String table = m.group(1).toLowerCase();
+            if (!"dual".equals(table)) {
+                tables.add(table);
+            }
+        }
+        return tables;
+    }
+
+    /**
+     * 剥离字符串字面量（单引号包裹的内容替换为空串），
+     * 保证字符串内的分号不被误判为语句分隔符。
+     */
+    private String stripStrings(String sql) {
+        return sql.replaceAll("'[^']*'", "''");
     }
 }

@@ -36,4 +36,24 @@ public interface NoteService {
      * 收藏/取消收藏
      */
     boolean collect(Long noteId);
+
+    /**
+     * 笔记详情（含作者信息、点赞收藏状态、评论列表）
+     */
+    Note detail(Long id);
+
+    /**
+     * 我的笔记列表
+     */
+    PageResult myNotes(int page, int pageSize);
+
+    /**
+     * 审核列表（管理端，按审核状态分页）
+     */
+    PageResult pageAudit(int page, int pageSize, Integer auditStatus);
+
+    /**
+     * 审核笔记（通过/驳回）
+     */
+    void audit(Long id, Integer auditStatus, String auditReason);
 }

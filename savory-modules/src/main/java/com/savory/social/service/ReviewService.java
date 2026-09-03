@@ -25,4 +25,14 @@ public interface ReviewService {
      * 分页查询评价列表
      */
     PageResult pageQuery(int page, int pageSize, Integer auditStatus);
+
+    /**
+     * 我的评价（按当前用户过滤）
+     */
+    PageResult myPageQuery(int page, int pageSize);
+
+    /**
+     * 审核评价（通过/驳回）
+     */
+    void audit(Long id, Integer auditStatus, String auditReason);
 }

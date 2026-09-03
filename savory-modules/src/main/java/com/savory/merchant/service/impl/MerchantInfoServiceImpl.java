@@ -6,6 +6,7 @@ import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 
 import java.util.List;
+import com.savory.common.context.BaseContext;
 import com.savory.common.result.PageResult;
 import com.savory.merchant.mapper.MerchantInfoMapper;
 import com.savory.merchant.service.MerchantInfoService;
@@ -29,7 +30,7 @@ public class MerchantInfoServiceImpl implements MerchantInfoService {
     private MerchantInfoMapper merchantInfoMapper;
 
     @Override
-    @Cacheable(value = "merchant", key = "#page + '_' + #pageSize")
+    @Cacheable(value = "merchant", key = "#page + '_' + #pageSize + '_' + #name + '_' + #status")
     public PageResult pageQuery(int page, int pageSize, String name, Integer status) {
         //1、构建分页条件
         Page<MerchantInfo> p = new Page<>(page, pageSize);
@@ -87,8 +88,40 @@ public class MerchantInfoServiceImpl implements MerchantInfoService {
 
     @Override
     public MerchantInfo getByEmpId(Long empId) {
+        //演示数据可能同一 emp_id 绑定多个店铺（mock 数据复用了 emp_id 2-5），
+        //selectOne 遇到多行会抛异常，故取最早创建的一个
         LambdaQueryWrapper<MerchantInfo> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(MerchantInfo::getEmpId, empId);
+        wrapper.eq(MerchantInfo::getEmpId, empId)
+               .orderByAsc(MerchantInfo::getId)
+               .last("LIMIT 1");
         return merchantInfoMapper.selectOne(wrapper);
+    }
+
+    @Override
+    public void update(MerchantInfo merchantInfo) {
+        Long empId = BaseContext.getCurrentId();
+        if (merchantInfo == null || merchantInfo.getId() == null) {
+            throw new com.savory.common.exception.BaseException("店铺信息不能为空");
+        }
+        //归属校验：只能修改当前登录员工绑定的店铺
+        MerchantInfo own = getByEmpId(empId);
+        if (own == null || !own.getId().equals(merchantInfo.getId())) {
+            throw new com.savory.common.exception.BaseException("无权修改该店铺信息");
+        }
+        //只允许更新资料字段，防止篡改 emp_id / status / id
+        MerchantInfo update = MerchantInfo.builder()
+                .id(merchantInfo.getId())
+                .name(merchantInfo.getName())
+                .logo(merchantInfo.getLogo())
+                .description(merchantInfo.getDescription())
+                .address(merchantInfo.getAddress())
+                .longitude(merchantInfo.getLongitude())
+                .latitude(merchantInfo.getLatitude())
+                .phone(merchantInfo.getPhone())
+                .businessHours(merchantInfo.getBusinessHours())
+                .deliveryRange(merchantInfo.getDeliveryRange())
+                .build();
+        merchantInfoMapper.updateById(update);
+        log.info("店铺资料更新成功，merchantId: {}", merchantInfo.getId());
     }
 }

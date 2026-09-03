@@ -16,6 +16,10 @@ import org.springframework.context.annotation.Configuration;
  *   @DS("social")   → savory_social   (社区)
  */
 @Configuration
-@MapperScan(basePackages = "com.savory.*.mapper")
+@MapperScan(basePackages = {
+        "com.savory.*.mapper",
+        "com.savory.market.shortlink.mapper",
+        "com.savory.trade.pay.mapper"
+})
 public class DataSourceConfig {
 }

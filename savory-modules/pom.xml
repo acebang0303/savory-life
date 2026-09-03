@@ -24,6 +24,13 @@
             <scope>provided</scope>
         </dependency>
 
+        <!-- Caffeine 本地缓存（短链三级缓存 + 限流窗口） -->
+        <dependency>
+            <groupId>com.github.ben-manes.caffeine</groupId>
+            <artifactId>caffeine</artifactId>
+            <version>3.2.3</version>
+        </dependency>
+
         <!-- 数据库驱动 -->
         <dependency>
             <groupId>com.mysql</groupId>

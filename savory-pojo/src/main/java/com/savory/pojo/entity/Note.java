@@ -6,6 +6,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * 种草笔记表
@@ -51,4 +52,21 @@ public class Note {
     private LocalDateTime createTime;
     @TableField(fill = FieldFill.INSERT_UPDATE)
     private LocalDateTime updateTime;
+
+    // ===== 非表字段：展示增强 =====
+    //作者昵称/头像（feed/详情展示）
+    @TableField(exist = false)
+    private String nickname;
+    @TableField(exist = false)
+    private String avatar;
+    //当前用户是否已点赞/收藏/关注作者
+    @TableField(exist = false)
+    private Boolean isLiked;
+    @TableField(exist = false)
+    private Boolean isCollected;
+    @TableField(exist = false)
+    private Boolean isFollowing;
+    //详情页评论列表
+    @TableField(exist = false)
+    private List<Comment> comments;
 }

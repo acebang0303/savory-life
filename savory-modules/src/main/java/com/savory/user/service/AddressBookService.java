@@ -23,4 +23,14 @@ public interface AddressBookService {
      * 设为默认地址
      */
     void setDefault(Long id, Long userId);
+
+    /**
+     * 修改地址
+     */
+    void update(AddressBook addressBook, Long userId);
+
+    /**
+     * 删除地址
+     */
+    void delete(Long id, Long userId);
 }

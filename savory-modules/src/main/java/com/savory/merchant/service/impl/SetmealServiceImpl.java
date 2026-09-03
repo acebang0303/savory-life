@@ -40,7 +40,7 @@ public class SetmealServiceImpl implements SetmealService {
     }
 
     @Override
-    @Cacheable(value = "setmeal", key = "#page + '_' + #pageSize")
+    @Cacheable(value = "setmeal", key = "#page + '_' + #pageSize + '_' + #merchantId + '_' + #name")
     public PageResult pageQuery(int page, int pageSize, Long merchantId, String name) {
         //1、构建分页条件
         Page<Setmeal> p = new Page<>(page, pageSize);

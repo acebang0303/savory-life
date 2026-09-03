@@ -15,7 +15,8 @@
             <text class="author-name">{{ note.nickname || '用户' }}</text>
             <text class="note-time">{{ formatTime(note.createTime) }}</text>
           </view>
-          <button class="follow-btn" @click.stop="follow(note.userId)">关注</button>
+          <button class="follow-btn" :class="{ followed: note.isFollowing }"
+                  @click.stop="follow(note)">{{ note.isFollowing ? '已关注' : '关注' }}</button>
         </view>
         <view class="note-content">
           <text class="note-title">{{ note.title }}</text>
@@ -25,7 +26,8 @@
                    :src="img" mode="aspectFill" class="note-img" />
           </view>
           <view class="note-tags" v-if="note.topicTags">
-            <text class="tag" v-for="(t, i) in parseTags(note.topicTags)" :key="i">#{{ t }}</text>
+            <text class="tag" v-for="(t, i) in parseTags(note.topicTags)" :key="i"
+                  @click.stop="goTagSearch(t, note)">#{{ t }}</text>
           </view>
         </view>
         <view class="note-footer">
@@ -58,27 +60,50 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
-import { getNoteFeed, getNoteHot, likeNote, collectNote, followUser } from '@/api/index.js'
+import { onReachBottom } from '@dcloudio/uni-app'
+import { getNoteFeed, getNoteHot, likeNote, collectNote, followUser, reportBehavior } from '@/api/index.js'
 import { formatTime } from '@/utils/index.js'
 
 const defaultAvatar = '/static/icons/profile.png'
 const feedType = ref('feed')
 const notes = ref([])
+const page = ref(1)
+const pageSize = 10
+const hasMore = ref(true)
+
+const loadNotes = async (reset) => {
+  if (reset) {
+    page.value = 1
+    hasMore.value = true
+  }
+  if (!hasMore.value) return
+  try {
+    const res = feedType.value === 'feed'
+      ? await getNoteFeed(page.value, pageSize)
+      : await getNoteHot(page.value, pageSize)
+    const list = res?.records || []
+    notes.value = reset ? list : [...notes.value, ...list]
+    hasMore.value = page.value * pageSize < (res?.total || list.length)
+    page.value += 1
+  } catch (e) { console.log('加载笔记失败', e) }
+}
 
 const switchFeed = async (type) => {
   feedType.value = type
-  try {
-    notes.value = type === 'feed'
-      ? ((await getNoteFeed(1, 20))?.records || [])
-      : ((await getNoteHot(1, 20))?.records || [])
-  } catch (e) { console.log('加载笔记失败', e) }
+  loadNotes(true)
 }
+
+// 触底加载更多
+onReachBottom(() => {
+  loadNotes(false)
+})
 
 const like = async (note) => {
   try {
     const result = await likeNote(note.id)
     note.isLiked = result?.liked
-    note.likeCount += note.isLiked ? 1 : -1
+    note.likeCount = Math.max(0, (note.likeCount || 0) + (note.isLiked ? 1 : -1))
+    if (note.isLiked) reportBehavior('LIKE_NOTE', note.id).catch(() => {})
   } catch (e) { uni.showToast({ title: '请先登录', icon: 'none' }) }
 }
 
@@ -86,14 +111,17 @@ const collect = async (note) => {
   try {
     const result = await collectNote(note.id)
     note.isCollected = result?.collected
-    note.collectCount += note.isCollected ? 1 : -1
+    note.collectCount = Math.max(0, (note.collectCount || 0) + (note.isCollected ? 1 : -1))
+    if (note.isCollected) reportBehavior('COLLECT_NOTE', note.id).catch(() => {})
   } catch (e) { uni.showToast({ title: '请先登录', icon: 'none' }) }
 }
 
-const follow = async (userId) => {
+const follow = async (note) => {
+  if (!note.userId) return
   try {
-    await followUser(userId)
-    uni.showToast({ title: '已关注', icon: 'success' })
+    const result = await followUser(note.userId)
+    note.isFollowing = result?.following
+    uni.showToast({ title: note.isFollowing ? '关注成功' : '已取消关注', icon: 'none' })
   } catch (e) { uni.showToast({ title: '请先登录', icon: 'none' }) }
 }
 
@@ -107,6 +135,15 @@ const parseTags = (json) => {
 
 const goDetail = (id) => uni.navigateTo({ url: '/pages/note/detail?id=' + id })
 const goPublish = () => uni.navigateTo({ url: '/pages/note/publish' })
+
+// 标签点击 → 笔记关联了店铺则直接跳店铺，否则跳搜索页带入标签词
+const goTagSearch = (tag, note) => {
+  if (note && note.merchantId) {
+    uni.navigateTo({ url: '/pages/shop/shop?id=' + note.merchantId })
+  } else {
+    uni.navigateTo({ url: '/pages/search/search?keyword=' + encodeURIComponent(tag) })
+  }
+}
 
 onMounted(() => switchFeed('feed'))
 </script>
@@ -128,6 +165,7 @@ onMounted(() => switchFeed('feed'))
   background: $primary-color; color: #fff; border-radius: 26rpx;
   font-size: 22rpx; border: none;
 }
+.follow-btn.followed { background: #e8e8e8; color: #999; }
 .note-content { margin-bottom: 16rpx; }
 .note-title { font-size: 32rpx; font-weight: bold; display: block; margin-bottom: 8rpx; }
 .note-text { font-size: 28rpx; color: #333; display: block; line-height: 1.6;
@@ -136,7 +174,7 @@ onMounted(() => switchFeed('feed'))
 .note-images { display: flex; gap: 8rpx; margin-top: 12rpx; flex-wrap: wrap; }
 .note-img { width: 210rpx; height: 210rpx; border-radius: 8rpx; background: #f0f0f0; }
 .note-tags { display: flex; gap: 12rpx; margin-top: 12rpx; flex-wrap: wrap; }
-.tag { font-size: 22rpx; color: #1890FF; }
+.tag { font-size: 22rpx; color: $primary-color; }
 .note-footer { display: flex; gap: 32rpx; border-top: 1rpx solid #f5f5f5; padding-top: 12rpx; }
 .footer-action { display: flex; align-items: center; gap: 4rpx; font-size: 24rpx; color: #999; }
 .publish-btn {

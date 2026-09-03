@@ -1,12 +1,12 @@
 // 订单状态映射
 export const orderStatusMap = {
-  1: { text: '待支付', color: '#FF6B35' },
-  2: { text: '待接单', color: '#1890FF' },
-  3: { text: '备货中', color: '#722ED1' },
-  4: { text: '待取餐', color: '#13C2C2' },
-  5: { text: '已完成', color: '#52C41A' },
-  6: { text: '已取消', color: '#999999' },
-  7: { text: '已退款', color: '#999999' }
+  1: { text: '待支付', color: '#FF7A3D' },
+  2: { text: '待接单', color: '#E8A13C' },
+  3: { text: '备货中', color: '#5B8DB8' },
+  4: { text: '待取餐', color: '#4C9A6A' },
+  5: { text: '已完成', color: '#3E7A53' },
+  6: { text: '已取消', color: '#C4B6A8' },
+  7: { text: '已退款', color: '#C4B6A8' }
 }
 
 // 支付状态映射
@@ -17,9 +17,14 @@ export const payStatusMap = {
 }
 
 // 格式化时间
+// iOS 的 JS 引擎不支持 new Date("yyyy-MM-dd HH:mm:ss")，需把空格换成 T（ISO 8601）
 export const formatTime = (dateStr) => {
   if (!dateStr) return ''
-  const d = new Date(dateStr)
+  let d = new Date(dateStr)
+  if (isNaN(d.getTime()) && typeof dateStr === 'string' && dateStr.includes(' ')) {
+    d = new Date(dateStr.replace(' ', 'T'))
+  }
+  if (isNaN(d.getTime())) return ''
   const y = d.getFullYear()
   const M = String(d.getMonth() + 1).padStart(2, '0')
   const day = String(d.getDate()).padStart(2, '0')

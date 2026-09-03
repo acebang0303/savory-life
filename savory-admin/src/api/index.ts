@@ -93,6 +93,9 @@ export const getCouponTemplatePage = (params: any) =>
 export const createCouponTemplate = (data: CouponTemplate) =>
   http.post('/coupon/template', data)
 
+export const updateCouponStatus = (id: number, status: number) =>
+  http.put(`/coupon/template/${id}/status`, null, { params: { status } })
+
 export const grantCoupon = (templateId: number, userIds: number[]) =>
   http.post('/coupon/grant', null, { params: { templateId, userIds } })
 

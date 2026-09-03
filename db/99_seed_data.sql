@@ -6,10 +6,17 @@
 -- savory_auth: 扩充管理员
 -- ==========================================
 INSERT IGNORE INTO savory_auth.employee (id, username, name, password, phone, role_id, status, create_time, update_time) VALUES
+(1, 'admin', '管理员', '$2a$10$la.k3NfhRPBlkv5UqClbe.Hq.9m4IlCylz1mOe2YHxNU7YpcJ2AXO', '13800138001', 1, 1, NOW(), NOW()),
+(2, 'merchant01', '张记面馆', '$2a$10$la.k3NfhRPBlkv5UqClbe.Hq.9m4IlCylz1mOe2YHxNU7YpcJ2AXO', '13800138002', 2, 1, NOW(), NOW()),
 (3, 'merchant02', '老王烧烤', '$2a$10$la.k3NfhRPBlkv5UqClbe.Hq.9m4IlCylz1mOe2YHxNU7YpcJ2AXO', '13800138003', 2, 1, NOW(), NOW()),
 (4, 'merchant03', '蜀味川菜', '$2a$10$la.k3NfhRPBlkv5UqClbe.Hq.9m4IlCylz1mOe2YHxNU7YpcJ2AXO', '13800138004', 2, 1, NOW(), NOW()),
 (5, 'merchant04', '外婆家私房菜', '$2a$10$la.k3NfhRPBlkv5UqClbe.Hq.9m4IlCylz1mOe2YHxNU7YpcJ2AXO', '13800138005', 2, 1, NOW(), NOW()),
 (6, 'operator01', '运营小王', '$2a$10$la.k3NfhRPBlkv5UqClbe.Hq.9m4IlCylz1mOe2YHxNU7YpcJ2AXO', '13800138006', 3, 1, NOW(), NOW());
+
+INSERT IGNORE INTO savory_auth.role (id, name, code, description, status, create_time, update_time) VALUES
+(1, '超级管理员', 'admin', '平台管理员，拥有全部权限', 1, NOW(), NOW()),
+(2, '商家', 'merchant', '入驻商家账号', 1, NOW(), NOW()),
+(3, '运营', 'operator', '内容审核与运营', 1, NOW(), NOW());
 
 INSERT IGNORE INTO savory_auth.permission (id, name, code, description, create_time) VALUES
 (1, '员工管理', 'employee:manage', '增删改查员工', NOW()),

@@ -57,12 +57,37 @@ public class AddressBookServiceImpl implements AddressBookService {
                      .set(AddressBook::getIsDefault, 0);
         addressBookMapper.update(null, clearWrapper);
 
-        //2、设置新的默认地址
+        //2、设置新的默认地址（校验归属，防止把他人地址设为自己的默认）
         LambdaUpdateWrapper<AddressBook> setWrapper = new LambdaUpdateWrapper<>();
         setWrapper.eq(AddressBook::getId, id)
+                  .eq(AddressBook::getUserId, userId)
                   .set(AddressBook::getIsDefault, 1);
         addressBookMapper.update(null, setWrapper);
 
         log.info("设置默认地址成功，addressId: {}, userId: {}", id, userId);
+    }
+
+    @Override
+    public void update(AddressBook addressBook, Long userId) {
+        //归属校验：只能改自己的地址
+        addressBook.setUserId(userId);
+        int updated = addressBookMapper.update(addressBook,
+                new LambdaQueryWrapper<AddressBook>()
+                        .eq(AddressBook::getId, addressBook.getId())
+                        .eq(AddressBook::getUserId, userId));
+        if (updated == 0) {
+            throw new com.savory.common.exception.BaseException("地址不存在或无权修改");
+        }
+    }
+
+    @Override
+    public void delete(Long id, Long userId) {
+        int deleted = addressBookMapper.delete(
+                new LambdaQueryWrapper<AddressBook>()
+                        .eq(AddressBook::getId, id)
+                        .eq(AddressBook::getUserId, userId));
+        if (deleted == 0) {
+            throw new com.savory.common.exception.BaseException("地址不存在或无权删除");
+        }
     }
 }

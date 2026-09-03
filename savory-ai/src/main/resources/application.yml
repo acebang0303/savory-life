@@ -10,16 +10,25 @@ spring:
     virtual:
       enabled: true                        # AI服务使用虚拟线程处理并发请求
   ai:
-    openai:
-      base-url: ${DEEPSEEK_BASE_URL:https://api.deepseek.com}
-      api-key: ${DEEPSEEK_API_KEY}
+    deepseek:
+      api-key: ${DEEPSEEK_API_KEY:}
       chat:
         options:
           model: deepseek-chat
           temperature: 0.7
+    qwen:
+      base-url: ${QIANWEN_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode/v1}
+      api-key: ${QIANWEN_API_KEY:}
+      model: qwen3.6-flash
+    openai:
+      base-url: ${KIMI_BASE_URL:https://api.moonshot.cn}
+      api-key: ${KIMI_API_KEY:}
+      chat:
+        options:
+          model: moonshot-v1-8k
       embedding:
         base-url: ${SILICONFLOW_BASE_URL:https://api.siliconflow.cn}
-        api-key: ${SILICONFLOW_API_KEY}
+        api-key: ${SILICONFLOW_API_KEY:}
         options:
           model: BAAI/bge-m3
   data:

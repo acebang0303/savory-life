@@ -22,7 +22,7 @@
 
 <script setup>
 import { ref } from 'vue'
-import { wxLogin as wxLoginApi } from '@/api/index.js'
+import { wxLogin as wxLoginApi, getProfile } from '@/api/index.js'
 import { useUserStore } from '@/store/user.js'
 
 const userStore = useUserStore()
@@ -35,31 +35,24 @@ const wxLogin = () => {
     success: async (loginRes) => {
       try {
         const data = await wxLoginApi(loginRes.code)
-        userStore.setLogin(data.token, {
-          id: data.id,
-          openid: data.openid,
-          nickname: '微信用户',
-          avatar: ''
-        })
+        // 登录成功后拉取后端真实资料（头像/昵称在"我的"页可编辑）
+        let profile = { id: data.id, openid: data.openid, nickname: '微信用户', avatar: '' }
+        try {
+          const p = await getProfile()
+          if (p) profile = { ...profile, ...p }
+        } catch (e) { /* 资料拉取失败用默认值 */ }
+        userStore.setLogin(data.token, profile)
         uni.showToast({ title: '登录成功', icon: 'success' })
-        setTimeout(() => uni.navigateBack(), 1500)
+        setTimeout(() => uni.switchTab({ url: '/pages/index/index' }), 1000)
       } catch (e) {
-        // 开发阶段：模拟登录
-        const mockData = { id: 1001, openid: 'mock_' + Date.now(), token: 'dev_token_' + Date.now() }
-        userStore.setLogin(mockData.token, { id: mockData.id, openid: mockData.openid, nickname: '开发测试用户' })
-        uni.showToast({ title: '登录成功(开发模式)', icon: 'success' })
-        setTimeout(() => uni.navigateBack(), 1500)
+        uni.showToast({ title: e.message || '登录失败，请重试', icon: 'none' })
       } finally {
         loading.value = false
       }
     },
     fail: () => {
       loading.value = false
-      // 开发阶段：使用模拟登录
-      const mockData = { id: 1001, openid: 'mock_' + Date.now(), token: 'dev_token_' + Date.now() }
-      userStore.setLogin(mockData.token, { id: mockData.id, openid: mockData.openid, nickname: '开发测试用户' })
-      uni.showToast({ title: '模拟登录成功', icon: 'success' })
-      setTimeout(() => uni.navigateBack(), 1500)
+      uni.showToast({ title: '获取微信授权失败，请重试', icon: 'none' })
     }
   })
 }

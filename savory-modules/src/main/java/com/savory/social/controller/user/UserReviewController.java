@@ -66,7 +66,7 @@ public class UserReviewController {
             @RequestParam(defaultValue = "1") Integer page,
             @RequestParam(defaultValue = "10") Integer pageSize) {
         log.info("查询我的评价，page: {}", page);
-        PageResult pageResult = reviewService.pageQuery(page, pageSize, null);
+        PageResult pageResult = reviewService.myPageQuery(page, pageSize);
         return Result.success(pageResult);
     }
 }

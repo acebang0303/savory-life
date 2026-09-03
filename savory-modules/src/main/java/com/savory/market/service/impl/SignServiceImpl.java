@@ -1,6 +1,7 @@
 package com.savory.market.service.impl;
 
 import com.savory.market.service.SignService;
+import com.savory.user.service.GrowthService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.RedisTemplate;
@@ -20,6 +21,12 @@ public class SignServiceImpl implements SignService {
     @Autowired
     private RedisTemplate<String, Object> redisTemplate;
 
+    @Autowired
+    private GrowthService growthService;
+
+    /** 每次签到获得的成长值 */
+    private static final int SIGN_GROWTH = 5;
+
     @Override
     public void sign(Long userId) {
         //1、获取当前日期
@@ -27,9 +34,17 @@ public class SignServiceImpl implements SignService {
         int dayOfMonth = today.getDayOfMonth();
         String key = buildSignKey(userId, today);
 
-        //2、签到（SETBIT）
+        //2、每日签到去重：已签到则拒绝（防止前端绕过按钮无限签到）
+        if (Boolean.TRUE.equals(redisTemplate.opsForValue().getBit(key, dayOfMonth - 1))) {
+            throw new com.savory.common.exception.BaseException("今日已签到，明天再来吧");
+        }
+
+        //3、签到（SETBIT）
         redisTemplate.opsForValue().setBit(key, dayOfMonth - 1, true);
         log.info("用户签到成功，userId: {}, date: {}", userId, today);
+
+        //4、发放成长值
+        growthService.addGrowth(userId, SIGN_GROWTH);
     }
 
     @Override

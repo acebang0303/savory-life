@@ -11,6 +11,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.Map;
+
 /**
  * C端订单接口
  */
@@ -50,9 +52,38 @@ public class UserOrderController {
      */
     @PostMapping("/pay")
     @Operation(summary = "发起支付")
-    public Result<String> pay(@RequestParam Long orderId) {
-        log.info("用户支付订单，orderId: {}", orderId);
-        orderService.pay(orderId, com.savory.common.context.BaseContext.getCurrentId());
+    public Result<String> pay(@RequestBody Map<String, Object> body) {
+        Long orderId = body.get("orderId") == null
+                ? null : Long.valueOf(body.get("orderId").toString());
+        // 默认微信支付渠道（开发环境 mock 模式，发起即自动确认）；余额渠道需账户有余额
+        String channelCode = body.get("channelCode") == null
+                ? "wechat" : body.get("channelCode").toString();
+        if (orderId == null) {
+            return Result.error("orderId 不能为空");
+        }
+        log.info("用户支付订单，orderId: {}, channelCode: {}", orderId, channelCode);
+        orderService.pay(orderId, com.savory.common.context.BaseContext.getCurrentId(), channelCode);
+        return Result.success();
+    }
+
+    /**
+     * 订单详情（含明细）
+     */
+    @GetMapping("/{id}")
+    @Operation(summary = "订单详情")
+    public Result<Orders> detail(@PathVariable Long id) {
+        log.info("查询订单详情，orderId: {}", id);
+        return Result.success(orderService.getOrderDetail(id));
+    }
+
+    /**
+     * 再来一单（原订单明细重新加入购物车）
+     */
+    @PostMapping("/{id}/repetition")
+    @Operation(summary = "再来一单")
+    public Result<String> repetition(@PathVariable Long id) {
+        log.info("再来一单，orderId: {}", id);
+        orderService.repetition(id);
         return Result.success();
     }
 

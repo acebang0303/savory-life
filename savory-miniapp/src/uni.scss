@@ -1,17 +1,26 @@
-// 知味生活品牌色系
-$primary-color: #FF6B35;
-$primary-light: #FF8C60;
-$primary-dark: #E55A2B;
-$success-color: #52C41A;
-$warning-color: #FAAD14;
-$error-color: #FF4D4F;
-$text-color: #333;
-$text-light: #666;
-$text-lighter: #999;
-$bg-color: #F8F8F8;
-$border-color: #EBEBEB;
+// 知味生活 · 蜜杏暖阳色系（生活社区 · 小红书式）
+$primary-color: #FF7A3D;
+$primary-light: #FF9667;
+$primary-soft: #FFE4D1;      // 浅蜜杏底
+$primary-bg: #FFF1E8;       // 更浅的蜜杏底
+$primary-dark: #D95A1F;
+$glow-color: #FFB98A;       // 暖阳高光
+
+$success-color: #4C9A6A;
+$warning-color: #E8A13C;
+$error-color: #E05B4A;
+
+// 暖色中性
+$text-color: #33261E;
+$text-regular: #6B5A4E;
+$text-light: #9C8A7C;
+$text-lighter: #C4B6A8;
+$bg-color: #FFF8F1;         // 暖白蜜
+$bg-card: #FFFFFF;
+$border-color: #F0E4D6;
+$border-light: #F5ECE0;
 $white: #FFFFFF;
-$shadow: 0 2rpx 12rpx rgba(0,0,0,0.06);
+$shadow: 0 2rpx 12rpx rgba(51, 38, 30, 0.06);
 
 // 通用类
 .flex-center { display: flex; align-items: center; justify-content: center; }

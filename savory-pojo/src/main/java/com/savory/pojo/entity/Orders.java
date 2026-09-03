@@ -7,6 +7,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * 订单表
@@ -67,6 +68,8 @@ public class Orders {
     private String remark;
     //是否秒杀订单 1是 0否
     private Integer isSeckill;
+    //秒杀活动ID（普通订单为NULL）
+    private Long seckillActivityId;
     //预计送达时间
     private LocalDateTime estimatedDeliveryTime;
     //实际送达时间
@@ -79,4 +82,12 @@ public class Orders {
     private LocalDateTime createTime;
     @TableField(fill = FieldFill.INSERT_UPDATE)
     private LocalDateTime updateTime;
+
+    //非表字段：订单明细（详情接口返回）
+    @TableField(exist = false)
+    private List<OrderDetail> orderDetails;
+
+    //非表字段：店铺名称（列表展示）
+    @TableField(exist = false)
+    private String merchantName;
 }

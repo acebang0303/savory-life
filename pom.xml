@@ -29,7 +29,7 @@
         <!-- Framework versions -->
         <spring-boot.version>3.5.0</spring-boot.version>
         <spring-cloud.version>2025.0.0</spring-cloud.version>
-        <spring-ai.version>1.0.0-M6</spring-ai.version>
+        <spring-ai.version>1.1.8</spring-ai.version>
 
         <!-- Database versions -->
         <mybatis-plus.version>3.5.9</mybatis-plus.version>

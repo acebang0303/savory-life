@@ -93,7 +93,7 @@
 
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue'
-import { getCouponTemplatePage, createCouponTemplate } from '@/api'
+import { getCouponTemplatePage, createCouponTemplate, updateCouponStatus } from '@/api'
 import { ElMessage } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
 import type { CouponTemplate } from '@/types'
@@ -155,8 +155,11 @@ function handleAdd() {
   dialogVisible.value = true
 }
 
-function handleToggle(row: CouponTemplate) {
-  ElMessage.info('状态切换功能请参考后端API实现')
+async function handleToggle(row: CouponTemplate) {
+  const newStatus = row.status === 1 ? 0 : 1
+  await updateCouponStatus(row.id, newStatus)
+  row.status = newStatus
+  ElMessage.success(newStatus === 1 ? '已启用' : '已禁用')
 }
 
 function resetForm() {

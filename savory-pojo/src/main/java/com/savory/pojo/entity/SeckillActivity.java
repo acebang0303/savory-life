@@ -27,6 +27,8 @@ public class SeckillActivity {
     private BigDecimal seckillPrice;
     //秒杀库存
     private Integer stock;
+    //已售数量
+    private Integer sold;
     //每人限购数量
     private Integer limitPerUser;
     //开始时间
@@ -35,6 +37,17 @@ public class SeckillActivity {
     private LocalDateTime endTime;
     //状态 0未开始 1进行中 2已结束
     private Integer status;
+    //乐观锁版本号
+    @Version
+    private Integer version;
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createTime;
+    @TableField(fill = FieldFill.INSERT_UPDATE)
+    private LocalDateTime updateTime;
+
+    //非表字段：菜品名/店铺名（列表展示）
+    @TableField(exist = false)
+    private String dishName;
+    @TableField(exist = false)
+    private String merchantName;
 }

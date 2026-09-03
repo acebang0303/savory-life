@@ -2,12 +2,14 @@ package com.savory.ai.recommend;
 
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONArray;
+import com.alibaba.fastjson2.JSONObject;
+import com.savory.ai.config.ChatClientRegistry;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.embedding.EmbeddingModel;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
@@ -15,12 +17,14 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 /**
- * 混合推荐引擎
+ * 混合推荐引擎（行为驱动）
  *
- * 三阶段推荐:
- * 第一层：协同过滤（UserCF + ItemCF） → 候选集A (100个)
- * 第二层：语义向量（偏好标签向量 × 菜品向量 → 余弦相似度） → 候选集B (100个)
- * 第三层：LLM重排序（Top50 + 用户画像 + 上下文 → LLM排序 + 推荐理由）
+ * 候选来源（按优先级）:
+ * 1. 用户行为关联：点赞/收藏/评论的笔记关联店铺 + 浏览过的店铺 → 店内热门菜品
+ * 2. 语义向量：用户偏好画像文本 × 菜品向量 → 余弦相似度
+ * 3. 冷启动兜底：全站销量 Top 菜品
+ *
+ * 排序：LLM 重排序（不可用时按销量降级），并为每道菜生成推荐理由
  */
 @Service
 @Slf4j
@@ -30,7 +34,7 @@ public class RecommendEngine {
     private EmbeddingModel embeddingModel;
 
     @Autowired
-    private ChatModel chatModel;
+    private ChatClientRegistry registry;
 
     @Autowired
     private JdbcTemplate pgJdbcTemplate;
@@ -39,98 +43,105 @@ public class RecommendEngine {
     @Qualifier("bizJdbcTemplate")
     private JdbcTemplate bizJdbcTemplate;
 
+    @Value("${agent.recommend-model:deepseek}")
+    private String recommendModel;
+
     /**
      * AI个性化菜品推荐
      *
      * @param userId 用户ID
      * @param topN 返回Top N个推荐
-     * @return 推荐结果JSON（含推荐理由）
+     * @return 推荐结果JSON数组，每项: {rank, dishId, name, price, image, merchantId, merchantName, reason}
      */
     public String recommend(Long userId, int topN) {
-        log.info("个性化推荐: userId={}, topN={}", userId);
+        log.info("个性化推荐: userId={}, topN={}", userId, topN);
 
-        //1、协同过滤 → 候选集A
-        List<Long> cfCandidates = collaborativeFilter(userId, 100);
+        //1、用户偏好画像文本（行为驱动，如 "张记面馆 蜀味川菜 烧烤"）
+        String preferenceText = getUserPreferenceText(userId);
+        log.info("用户偏好画像: userId={}, text={}", userId, preferenceText);
 
-        //2、语义向量匹配 → 候选集B
-        List<Long> semanticCandidates = semanticFilter(userId, 100);
-
-        //3、合并去重 → Top50
+        //2、候选集：行为关联 > 语义匹配 > 热度兜底
         Set<Long> merged = new LinkedHashSet<>();
-        merged.addAll(cfCandidates);
-        merged.addAll(semanticCandidates);
-        List<Long> top50 = merged.stream().limit(50).collect(Collectors.toList());
-
-        if (top50.isEmpty()) {
-            // 冷启动：推荐全站最高评分菜品
-            return recommendTopRated(topN);
+        merged.addAll(behaviorBasedCandidates(userId, 50));
+        merged.addAll(semanticFilter(preferenceText, 50));
+        if (merged.isEmpty()) {
+            merged.addAll(topRatedDishIds(topN * 3));
+        }
+        List<Long> candidates = merged.stream().limit(50).collect(Collectors.toList());
+        if (candidates.isEmpty()) {
+            return "[]";
         }
 
-        //4、LLM重排序 + 生成推荐理由
-        return llmRerank(userId, top50, topN);
+        //3、查询菜品真实数据（名称/价格/图片/店铺）
+        List<Map<String, Object>> dishes = queryDishes(candidates);
+        if (dishes.isEmpty()) {
+            return "[]";
+        }
+
+        //4、LLM 重排序（失败自动降级为销量排序）
+        String llmJson = null;
+        try {
+            llmJson = llmRerank(userId, preferenceText, dishes, topN);
+        } catch (Exception e) {
+            log.warn("LLM重排序不可用，降级为销量排序: {}", e.getMessage());
+        }
+
+        return buildResponse(dishes, llmJson, topN);
     }
 
     /**
-     * 协同过滤（用户行为相似度）
-     * 基于用户的点餐历史计算口味相似度
+     * 行为关联候选：点赞/收藏/评论的笔记关联店铺 + 浏览过的店铺 → 店内热门菜品
      */
-    private List<Long> collaborativeFilter(Long userId, int n) {
-        log.info("协同过滤: userId={}, n={}", userId);
-
-        //1、获取当前用户的点餐历史 dish_id 列表
-        // 实际应查询 MySQL: SELECT DISTINCT od.dish_id FROM order_detail od
-        //                  JOIN orders o ON od.order_id = o.id
-        //                  WHERE o.user_id = ? AND o.status IN (5,6)
-
-        // 开发阶段：使用 pgvector 中的 dish_embedding 表获取 ID 列表作为候选
+    private List<Long> behaviorBasedCandidates(Long userId, int n) {
         try {
-            String sql = "SELECT id FROM dish_embedding ORDER BY id LIMIT ?";
-            List<Map<String, Object>> rows = pgJdbcTemplate.queryForList(sql, n);
-            return rows.stream()
+            String merchantSql = """
+                    SELECT DISTINCT m.id AS merchant_id
+                    FROM savory_user.user_behavior ub
+                    LEFT JOIN savory_social.note n ON ub.target_id = n.id
+                            AND ub.type IN ('LIKE_NOTE','COLLECT_NOTE','COMMENT_NOTE')
+                    LEFT JOIN savory_merchant.merchant_info m ON m.id = n.merchant_id
+                    WHERE ub.user_id = ?
+                    UNION
+                    SELECT DISTINCT ub.target_id AS merchant_id
+                    FROM savory_user.user_behavior ub
+                    WHERE ub.user_id = ? AND ub.type = 'VIEW_MERCHANT'
+                    """;
+            List<Long> merchantIds = bizJdbcTemplate.queryForList(merchantSql, userId, userId).stream()
+                    .map(r -> r.get("merchant_id") == null ? null : Long.valueOf(r.get("merchant_id").toString()))
+                    .filter(Objects::nonNull)
+                    .collect(Collectors.toList());
+            if (merchantIds.isEmpty()) {
+                return Collections.emptyList();
+            }
+            String inClause = merchantIds.stream().map(String::valueOf).collect(Collectors.joining(","));
+            String dishSql = "SELECT id FROM savory_merchant.dish WHERE merchant_id IN (" + inClause
+                    + ") AND status = 1 ORDER BY sales DESC LIMIT " + n;
+            return bizJdbcTemplate.queryForList(dishSql).stream()
                     .map(r -> Long.valueOf(r.get("id").toString()))
                     .collect(Collectors.toList());
         } catch (Exception e) {
-            log.warn("协同过滤查询失败，返回空列表: {}", e.getMessage());
+            log.warn("行为关联候选查询失败: {}", e.getMessage());
             return Collections.emptyList();
         }
     }
 
     /**
-     * 语义向量匹配
-     * 用户偏好标签向量 × 菜品向量 → 余弦相似度排序
+     * 语义向量匹配：用户偏好画像文本 × 菜品向量 → 余弦相似度排序
      */
-    private List<Long> semanticFilter(Long userId, int n) {
-        log.info("语义向量匹配: userId={}, n={}", userId);
-
-        //1、获取用户偏好标签文本（真实数据）
-        String preferenceText = getUserPreferenceText(userId);
-        if (preferenceText.isEmpty()) {
-            log.info("用户无偏好标签，跳过语义匹配: userId={}", userId);
+    private List<Long> semanticFilter(String preferenceText, int n) {
+        if (preferenceText == null || preferenceText.isEmpty()) {
+            log.info("用户无偏好画像，跳过语义匹配");
             return Collections.emptyList();
         }
-
-        //2、生成偏好向量
-        float[] preferenceEmbedding;
         try {
-            preferenceEmbedding = embeddingModel.embed(preferenceText);
-        } catch (Exception e) {
-            log.warn("Embedding生成失败: {}", e.getMessage());
-            return Collections.emptyList();
-        }
-
-        //3、pgvector 余弦相似度检索
-        String vectorStr = vectorToString(preferenceEmbedding);
-        String sql = """
-                SELECT id, dish_name, price,
-                       1 - (embedding <=> ?::vector) AS similarity
-                FROM dish_embedding
-                ORDER BY embedding <=> ?::vector
-                LIMIT ?
-                """;
-
-        try {
-            List<Map<String, Object>> rows = pgJdbcTemplate.queryForList(sql, vectorStr, vectorStr, n);
-            return rows.stream()
+            float[] preferenceEmbedding = embeddingModel.embed(preferenceText);
+            String vectorStr = vectorToString(preferenceEmbedding);
+            String sql = """
+                    SELECT id FROM dish_embedding
+                    ORDER BY embedding <=> ?::vector
+                    LIMIT ?
+                    """;
+            return pgJdbcTemplate.queryForList(sql, vectorStr, n).stream()
                     .map(r -> Long.valueOf(r.get("id").toString()))
                     .collect(Collectors.toList());
         } catch (Exception e) {
@@ -140,76 +151,181 @@ public class RecommendEngine {
     }
 
     /**
-     * LLM重排序
-     * 将候选菜品 + 用户画像 + 上下文发给LLM做最终排序
+     * 冷启动：全站销量 Top 菜品
      */
-    private String llmRerank(Long userId, List<Long> candidates, int topN) {
-        //1、构建Prompt上下文
+    private List<Long> topRatedDishIds(int n) {
+        try {
+            String sql = "SELECT id FROM savory_merchant.dish WHERE status = 1 ORDER BY sales DESC LIMIT " + n;
+            return bizJdbcTemplate.queryForList(sql).stream()
+                    .map(r -> Long.valueOf(r.get("id").toString()))
+                    .collect(Collectors.toList());
+        } catch (Exception e) {
+            log.warn("热度兜底查询失败: {}", e.getMessage());
+            return Collections.emptyList();
+        }
+    }
+
+    /**
+     * 查询菜品真实数据（含店铺名）
+     */
+    private List<Map<String, Object>> queryDishes(List<Long> ids) {
+        try {
+            String inClause = ids.stream().map(String::valueOf).collect(Collectors.joining(","));
+            String sql = """
+                    SELECT d.id, d.merchant_id, d.name, d.image, d.price, d.sales,
+                           m.name AS merchant_name
+                    FROM savory_merchant.dish d
+                    LEFT JOIN savory_merchant.merchant_info m ON d.merchant_id = m.id
+                    WHERE d.id IN (%s) AND d.status = 1
+                    """.formatted(inClause);
+            return bizJdbcTemplate.queryForList(sql);
+        } catch (Exception e) {
+            log.warn("查询菜品数据失败: {}", e.getMessage());
+            return Collections.emptyList();
+        }
+    }
+
+    /**
+     * LLM重排序（开发环境无 Key 时抛异常，由调用方降级）
+     */
+    private String llmRerank(Long userId, String preferenceText, List<Map<String, Object>> dishes, int topN)
+            throws Exception {
+        String candidatesDesc = dishes.stream()
+                .map(d -> d.get("id") + "(" + d.get("name") + "-" + d.get("merchant_name") + ")")
+                .collect(Collectors.joining(", "));
         String prompt = String.format("""
                 你是一个美食推荐专家。请为用户%d推荐%d道最合适的菜品。
 
-                候选菜品ID列表: %s
+                候选菜品: %s
 
-                用户画像:
-                - 偏好: 火锅爱好者、麻辣口味、喜欢川菜
-                - 当前时间: 晚餐时段 (19:00)
-                - 场景: 朋友聚会
+                用户偏好: %s
 
-                请按推荐优先级排序，为每道菜写一句推荐理由（风格: 亲切、有感染力）。
-                输出格式（JSON数组）:
-                [
-                    {"rank": 1, "dishId": 123, "reason": "今日微凉，来份川味麻辣火锅暖身吧！本周好评如潮"},
-                    ...
-                ]
-
-                只返回JSON，不要其他内容。
-                """, userId, topN, candidates.toString());
-
-        //2、调用LLM
-        ChatClient client = ChatClient.builder(chatModel).build();
+                请按推荐优先级排序，为每道菜写一句15字左右的推荐理由（亲切、有感染力）。
+                输出格式（JSON数组，只返回JSON）:
+                [{"rank":1,"dishId":123,"reason":"..."}]
+                """, userId, topN, candidatesDesc, preferenceText);
+        ChatClient client = registry.get(recommendModel);
         String response = client.prompt().user(prompt).call().content();
-
-        log.info("LLM重排序完成，userId: {}, response长度: {}", userId,
-                response != null ? response.length() : 0);
+        if (response == null || response.isBlank()) {
+            throw new RuntimeException("LLM 返回为空");
+        }
         return response;
     }
 
     /**
-     * 冷启动推荐（新用户无历史行为，推荐全站评分最高的菜品）
+     * 组装返回：优先采用 LLM 的 rank/reason，失败按销量降序 + 模板理由
      */
-    private String recommendTopRated(int topN) {
-        log.info("冷启动推荐，topN={}", topN);
-
-        List<Map<String, Object>> topDishes = new ArrayList<>();
-        for (int i = 1; i <= topN; i++) {
-            Map<String, Object> dish = new LinkedHashMap<>();
-            dish.put("rank", i);
-            dish.put("dishId", 100 + i);
-            dish.put("reason", "本周热销Top " + i + "，全站好评如潮，值得一试！");
-            topDishes.add(dish);
+    private String buildResponse(List<Map<String, Object>> dishes, String llmJson, int topN) {
+        //1、解析 LLM 排序（rank → dishId → reason）
+        Map<Long, String> reasonMap = new HashMap<>();
+        List<Long> llmOrder = null;
+        if (llmJson != null) {
+            try {
+                String cleaned = llmJson.replaceAll("```json|```", "").trim();
+                int start = cleaned.indexOf('[');
+                int end = cleaned.lastIndexOf(']');
+                if (start >= 0 && end > start) {
+                    cleaned = cleaned.substring(start, end + 1);
+                }
+                JSONArray arr = JSON.parseArray(cleaned);
+                if (arr != null && !arr.isEmpty()) {
+                    List<JSONObject> items = new ArrayList<>();
+                    for (int i = 0; i < arr.size(); i++) {
+                        JSONObject o = arr.getJSONObject(i);
+                        if (o.getLong("dishId") != null) {
+                            items.add(o);
+                            reasonMap.put(o.getLong("dishId"), o.getString("reason"));
+                        }
+                    }
+                    items.sort(Comparator.comparingInt(o -> o.getIntValue("rank", 999)));
+                    llmOrder = items.stream().map(o -> o.getLong("dishId")).collect(Collectors.toList());
+                }
+            } catch (Exception e) {
+                log.warn("解析LLM重排序结果失败: {}", e.getMessage());
+            }
         }
 
-        return JSON.toJSONString(topDishes);
+        //2、确定最终顺序
+        Map<Long, Map<String, Object>> dishMap = new LinkedHashMap<>();
+        for (Map<String, Object> d : dishes) {
+            dishMap.put(Long.valueOf(d.get("id").toString()), d);
+        }
+        List<Long> orderedIds = new ArrayList<>();
+        if (llmOrder != null) {
+            for (Long id : llmOrder) {
+                if (dishMap.containsKey(id) && !orderedIds.contains(id)) {
+                    orderedIds.add(id);
+                }
+            }
+        }
+        for (Long id : dishMap.keySet()) {
+            if (!orderedIds.contains(id)) {
+                orderedIds.add(id);
+            }
+        }
+
+        //3、组装返回
+        List<Map<String, Object>> result = new ArrayList<>();
+        int rank = 0;
+        for (Long id : orderedIds) {
+            if (rank >= topN) {
+                break;
+            }
+            Map<String, Object> d = dishMap.get(id);
+            rank++;
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("rank", rank);
+            item.put("dishId", id);
+            item.put("name", d.get("name"));
+            item.put("price", d.get("price"));
+            item.put("image", d.get("image"));
+            item.put("merchantId", d.get("merchant_id"));
+            item.put("merchantName", d.get("merchant_name"));
+            String merchantName = d.get("merchant_name") != null ? d.get("merchant_name").toString() : "本店";
+            String dishName = d.get("name") != null ? d.get("name").toString() : "美食";
+            item.put("reason", reasonMap.getOrDefault(id, "「" + merchantName + "」的" + dishName + "，回头客最多，值得一试"));
+            result.add(item);
+        }
+        return JSON.toJSONString(result);
     }
 
     /**
-     * 查询用户偏好标签，转为空格分隔的纯文本（如 "火锅 川菜 深夜食堂"）
+     * 查询用户偏好画像：行为关联的店铺名 + 已有偏好标签
      */
     String getUserPreferenceText(Long userId) {
         try {
+            List<String> parts = new ArrayList<>();
+            //1、行为关联店铺名
+            String merchantSql = """
+                    SELECT DISTINCT m.name
+                    FROM savory_user.user_behavior ub
+                    LEFT JOIN savory_social.note n ON ub.target_id = n.id
+                            AND ub.type IN ('LIKE_NOTE','COLLECT_NOTE','COMMENT_NOTE')
+                    LEFT JOIN savory_merchant.merchant_info m ON m.id = n.merchant_id
+                    WHERE ub.user_id = ?
+                    UNION
+                    SELECT DISTINCT m.name
+                    FROM savory_user.user_behavior ub
+                    JOIN savory_merchant.merchant_info m ON m.id = ub.target_id
+                    WHERE ub.user_id = ? AND ub.type = 'VIEW_MERCHANT'
+                    """;
+            bizJdbcTemplate.queryForList(merchantSql, userId, userId).forEach(r -> {
+                if (r.get("name") != null) {
+                    parts.add(r.get("name").toString());
+                }
+            });
+            //2、已有偏好标签
             List<Map<String, Object>> rows = bizJdbcTemplate.queryForList(
                     "SELECT preference_tags FROM savory_user.user WHERE id = ?", userId);
-            if (rows.isEmpty() || rows.get(0).get("preference_tags") == null) {
-                return "";
+            if (!rows.isEmpty() && rows.get(0).get("preference_tags") != null) {
+                JSONArray arr = JSON.parseArray(rows.get(0).get("preference_tags").toString());
+                if (arr != null) {
+                    arr.forEach(tag -> parts.add(tag.toString()));
+                }
             }
-            String tags = String.valueOf(rows.get(0).get("preference_tags"));
-            JSONArray arr = JSON.parseArray(tags);
-            if (arr == null || arr.isEmpty()) {
-                return "";
-            }
-            return arr.stream().map(Object::toString).collect(Collectors.joining(" "));
+            return parts.stream().filter(Objects::nonNull).distinct().collect(Collectors.joining(" "));
         } catch (Exception e) {
-            log.warn("查询用户偏好标签失败 userId={}: {}", userId, e.getMessage());
+            log.warn("查询用户偏好画像失败 userId={}: {}", userId, e.getMessage());
             return "";
         }
     }

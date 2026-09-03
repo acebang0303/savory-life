@@ -79,6 +79,12 @@ const routes: RouteRecordRaw[] = [
         name: 'Employee',
         component: () => import('@/views/employee/EmployeeList.vue'),
         meta: { title: '员工管理', icon: 'UserFilled' }
+      },
+      {
+        path: 'ai-assistant',
+        name: 'AgentAssistant',
+        component: () => import('@/views/ai/AgentAssistant.vue'),
+        meta: { title: 'AI 智能助手', icon: 'MagicStick' }
       }
     ]
   }

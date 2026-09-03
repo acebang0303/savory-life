@@ -58,7 +58,7 @@ public class AdminSocialController {
                                        @RequestParam Integer auditStatus,
                                        @RequestParam(required = false) String auditReason) {
         log.info("评价审核: id={}, status={}, reason={}", id, auditStatus, auditReason);
-        //TODO: 通过 ReviewService 完成审核操作
+        reviewService.audit(id, auditStatus, auditReason);
         return Result.success();
     }
 
@@ -77,8 +77,8 @@ public class AdminSocialController {
             @RequestParam(defaultValue = "10") Integer pageSize,
             @RequestParam(required = false) Integer auditStatus) {
         log.info("查询笔记审核列表，page: {}, auditStatus: {}", page, auditStatus);
-        //TODO: noteService.pageQuery 需要支持 auditStatus 参数
-        return Result.success();
+        PageResult pageResult = noteService.pageAudit(page, pageSize, auditStatus);
+        return Result.success(pageResult);
     }
 
     /**
@@ -94,7 +94,7 @@ public class AdminSocialController {
                                      @RequestParam Integer auditStatus,
                                      @RequestParam(required = false) String auditReason) {
         log.info("笔记审核: id={}, status={}, reason={}", id, auditStatus, auditReason);
-        //TODO: 通过 NoteService 完成审核操作
+        noteService.audit(id, auditStatus, auditReason);
         return Result.success();
     }
 }
