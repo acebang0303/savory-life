@@ -43,7 +43,7 @@ public class WebMvcConfiguration implements WebMvcConfigurer {
                 .excludePathPatterns("/user/user/login")
                 .excludePathPatterns("/user/user/mock-login")
                 .excludePathPatterns("/user/shop/status")
-                .excludePathPatterns("/user/coupon-share/**");
+                .excludePathPatterns("/user/coupon-share/info", "/user/coupon-share/minicode");
     }
 
     @Override

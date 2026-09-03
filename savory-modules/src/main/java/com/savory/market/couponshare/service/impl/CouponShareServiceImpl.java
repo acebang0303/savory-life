@@ -46,6 +46,7 @@ public class CouponShareServiceImpl implements CouponShareService {
                 + "<rect width='200' height='200' fill='#FF7A3D'/>"
                 + "<text x='100' y='105' font-size='14' fill='white' text-anchor='middle'>"
                 + text + "</text></svg>";
-        return "data:image/svg+xml;utf8," + java.net.URLEncoder.encode(svg, java.nio.charset.StandardCharsets.UTF_8);
+        return "data:image/svg+xml;base64,"
+                + java.util.Base64.getEncoder().encodeToString(svg.getBytes(java.nio.charset.StandardCharsets.UTF_8));
     }
 }
