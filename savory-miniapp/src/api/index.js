@@ -222,9 +222,8 @@ export const receiveCoupon = (templateId) => request({
 
 // 生成优惠券分享短链（需登录，分享者是小程序登录用户）
 export const createCouponShareLink = (templateId) => request({
-  url: '/user/coupon-share/link',
-  method: 'POST',
-  data: { templateId }
+  url: '/user/coupon-share/link?templateId=' + templateId,
+  method: 'POST'
 })
 
 // ===== 签到 =====
