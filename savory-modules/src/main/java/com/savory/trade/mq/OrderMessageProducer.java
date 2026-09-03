@@ -1,7 +1,5 @@
 package com.savory.trade.mq;
 
-import com.alibaba.fastjson2.JSON;
-import com.savory.market.seckill.mq.SeckillMessage;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.rocketmq.client.producer.DefaultMQProducer;
 import org.apache.rocketmq.common.message.Message;
@@ -16,7 +14,6 @@ import java.nio.charset.StandardCharsets;
 @Slf4j
 public class OrderMessageProducer {
 
-    private static final String SECKILL_ORDER_TOPIC = "seckill-order-topic";
     private static final String ORDER_DELAY_TOPIC = "order-delay-topic";
 
     /** RocketMQ 默认延迟级别 15 = 20 分钟（内置 18 档无 15 分钟档，取最接近且不早于 15 分钟） */
@@ -40,16 +37,5 @@ public class OrderMessageProducer {
         } catch (Exception e) {
             log.warn("发送订单延迟检查消息失败 orderId={}: {}", orderId, e.getMessage());
         }
-    }
-
-    /**
-     * 发送秒杀订单异步创建消息。
-     * 发送失败抛出异常：调用方(seckillBuy)需回滚已扣的 Redis 库存，避免"库存扣了订单没建"。
-     */
-    public void sendSeckillOrder(SeckillMessage message) throws Exception {
-        Message msg = new Message(SECKILL_ORDER_TOPIC,
-                JSON.toJSONString(message).getBytes(StandardCharsets.UTF_8));
-        rocketMQProducer.send(msg);
-        log.info("发送秒杀订单消息: orderNo={}", message.orderNo());
     }
 }

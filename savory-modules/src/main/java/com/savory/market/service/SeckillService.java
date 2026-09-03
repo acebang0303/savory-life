@@ -68,9 +68,4 @@ public interface SeckillService {
      * broker 回查：orderNo 对应的预扣标记是否仍在 Redis（在=已扣，提交；不在=回滚）
      */
     boolean isPreDeducted(String orderNo);
-
-    /**
-     * 回滚预扣：回补 Redis 库存 + 用户限购计数 + 删预扣标记
-     */
-    void rollbackPreDeduct(SeckillMessage message);
 }

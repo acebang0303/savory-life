@@ -326,13 +326,6 @@ public class SeckillServiceImpl implements SeckillService {
     }
 
     @Override
-    public void rollbackPreDeduct(SeckillMessage message) {
-        revertRedisStock(message.activityId(), message.dishId(),
-                message.userId(), message.quantity());
-        stringRedisTemplate.delete(PRE_DEDUCT_KEY + message.orderNo());
-    }
-
-    @Override
     public boolean deductStock(Long activityId, int quantity) {
         return seckillActivityMapper.deductStock(activityId, quantity) > 0;
     }

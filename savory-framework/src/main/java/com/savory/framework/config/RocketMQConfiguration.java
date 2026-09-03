@@ -35,7 +35,8 @@ public class RocketMQConfiguration {
 
     /**
      * 事务消息 Producer：与普通 producer 用不同 group，避免消息路由冲突。
-     * TransactionListener 由业务方在发送时通过 sendMessageInTransaction 注入。
+     * 全局 TransactionListener 由各事务监听器（如 SeckillTransactionListener）在 @PostConstruct
+     * 中通过 setTransactionListener 注册；新增事务主题需独立 listener 或独立 producer，避免互相覆盖。
      */
     @Bean(initMethod = "start", destroyMethod = "shutdown")
     public TransactionMQProducer rocketMQTransactionProducer() throws MQClientException {
