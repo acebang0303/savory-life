@@ -30,7 +30,7 @@ const miniCode = ref<{ image: string }>({ image: '' })
 const couponText = computed(() => {
   const t = template.value
   if (!t) return ''
-  if (t.type === 2) return (Number(t.discountValue) * 10) + '折'
+  if (t.type === 2) return (Number(t.discountValue) * 10).toFixed(1) + '折'
   return '¥' + t.discountValue
 })
 const thresholdText = computed(() => {
@@ -43,7 +43,9 @@ const thresholdText = computed(() => {
 onMounted(async () => {
   if (!templateId) { error.value = '链接无效'; loading.value = false; return }
   try {
-    template.value = await getCouponShareInfo(templateId)
+    const t = await getCouponShareInfo(templateId)
+    if (!t) { error.value = '优惠券不存在或活动已结束'; loading.value = false; return }
+    template.value = t
     const mc = await getCouponShareMiniCode(templateId)
     if (mc) miniCode.value = mc
   } catch (e: any) {
