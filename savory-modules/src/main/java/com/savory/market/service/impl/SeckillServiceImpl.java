@@ -70,6 +70,7 @@ public class SeckillServiceImpl implements SeckillService {
     private TransactionMQProducer transactionProducer;
 
     private static final String PRE_DEDUCT_KEY = "seckill:prededuct:";
+    private static final String FAIL_REASON_KEY = "seckill:failreason:";
     private static final String SECKILL_ORDER_TOPIC = "seckill-order-topic";
 
     //Redis Lua脚本: 原子执行秒杀逻辑（限购用 HINCRBY 计数，支持按用户回滚）
@@ -246,16 +247,32 @@ public class SeckillServiceImpl implements SeckillService {
         }
 
         if (sendResult.getLocalTransactionState() == LocalTransactionState.ROLLBACK_MESSAGE) {
-            throw new OrderBusinessException(MessageConstant.SECKILL_STOCK_OUT);
+            throw buildPreDeductFailException(orderNo);
         }
         log.info("秒杀事务消息已发送，userId: {}, activityId: {}, orderNo: {}", userId, activityId, orderNo);
         return Long.valueOf(orderNo);
     }
 
     /**
-     * 抽取私有 Lua 执行方法：校验库存 + 限购 + 扣减，返回是否预扣成功。
+     * 依据预扣失败原因构造秒杀异常：存在 "repeat" 标记 → 重复秒杀，否则默认售罄。
      */
-    private boolean executeSeckillLua(Long activityId, Long dishId, Long userId, int limitPerUser) {
+    private OrderBusinessException buildPreDeductFailException(String orderNo) {
+        String reasonKey = FAIL_REASON_KEY + orderNo;
+        String reason = stringRedisTemplate.opsForValue().get(reasonKey);
+        if (reason != null) {
+            stringRedisTemplate.delete(reasonKey);
+        }
+        if ("repeat".equals(reason)) {
+            return new OrderBusinessException(MessageConstant.SECKILL_REPEAT);
+        }
+        return new OrderBusinessException(MessageConstant.SECKILL_STOCK_OUT);
+    }
+
+    /**
+     * 抽取私有 Lua 执行方法：校验库存 + 限购 + 扣减，返回原始返回码。
+     * 返回码：1=预扣成功，-1=库存不足，-2=超过限购；null（Redis 异常）归一化为 0，按售罄处理。
+     */
+    private long executeSeckillLua(Long activityId, Long dishId, Long userId, int limitPerUser) {
         DefaultRedisScript<Long> redisScript = new DefaultRedisScript<>();
         redisScript.setScriptText(SECKILL_LUA_SCRIPT);
         redisScript.setResultType(Long.class);
@@ -264,7 +281,7 @@ public class SeckillServiceImpl implements SeckillService {
         Long result = stringRedisTemplate.execute(redisScript,
                 Arrays.asList(stockKey, userKey),
                 userId.toString(), String.valueOf(limitPerUser));
-        return result != null && result == 1;
+        return result == null ? 0L : result;
     }
 
     @Override
@@ -273,9 +290,9 @@ public class SeckillServiceImpl implements SeckillService {
         if (activity == null) {
             return false;
         }
-        boolean ok = executeSeckillLua(message.activityId(), message.dishId(),
+        long result = executeSeckillLua(message.activityId(), message.dishId(),
                 message.userId(), activity.getLimitPerUser());
-        if (ok) {
+        if (result == 1) {
             String key = PRE_DEDUCT_KEY + message.orderNo();
             long ttlSeconds = Math.max(30 * 60L,
                     java.time.Duration.between(java.time.LocalDateTime.now(), activity.getEndTime()).getSeconds());
@@ -288,8 +305,19 @@ public class SeckillServiceImpl implements SeckillService {
                 log.error("秒杀预扣标记写失败，已回滚库存: orderNo={}", message.orderNo(), e);
                 return false;
             }
+            return true;
         }
-        return ok;
+        if (result == -2) {
+            // 超限购：写短 TTL 失败原因标记，供 seckillBuy 区分「重复秒杀」与「售罄」
+            try {
+                stringRedisTemplate.opsForValue().set(FAIL_REASON_KEY + message.orderNo(),
+                        "repeat", java.time.Duration.ofSeconds(10));
+            } catch (Exception e) {
+                log.warn("秒杀限购失败原因标记写失败，将按售罄提示: orderNo={}", message.orderNo(), e);
+            }
+        }
+        // -1 售罄（或 0 异常）：不写标记，默认售罄
+        return false;
     }
 
     @Override
