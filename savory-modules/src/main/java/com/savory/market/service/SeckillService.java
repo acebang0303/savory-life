@@ -2,6 +2,7 @@ package com.savory.market.service;
 
 import com.savory.common.result.PageResult;
 import com.savory.market.dto.SeckillBuyDTO;
+import com.savory.market.seckill.mq.SeckillMessage;
 import com.savory.pojo.entity.SeckillActivity;
 
 import java.util.List;
@@ -57,4 +58,19 @@ public interface SeckillService {
      * 秒杀订单超时未支付：回补 DB 库存 + Redis 库存 + 用户限购计数
      */
     void restoreSeckillOnTimeout(Long activityId, Long userId);
+
+    /**
+     * 事务消息本地事务执行体：Redis Lua 预扣库存 + 限购 + 写预扣标记。返回 true=预扣成功（消息应提交）
+     */
+    boolean preDeductSeckillStock(SeckillMessage message);
+
+    /**
+     * broker 回查：orderNo 对应的预扣标记是否仍在 Redis（在=已扣，提交；不在=回滚）
+     */
+    boolean isPreDeducted(String orderNo);
+
+    /**
+     * 回滚预扣：回补 Redis 库存 + 用户限购计数 + 删预扣标记
+     */
+    void rollbackPreDeduct(SeckillMessage message);
 }
