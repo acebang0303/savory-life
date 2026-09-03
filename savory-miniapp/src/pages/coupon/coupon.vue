@@ -7,7 +7,7 @@
 
     <!-- 领券中心 -->
     <view class="coupon-list" v-if="tab === 'receive'">
-      <view class="coupon-card" v-for="t in templates" :key="t.id">
+      <view class="coupon-card" :class="{ highlight: highlightId === t.id }" v-for="t in templates" :key="t.id">
         <view class="coupon-left">
           <view class="coupon-value">
             <text class="value">{{ couponText(t) }}</text>
@@ -19,6 +19,7 @@
           </view>
         </view>
         <view class="receive-wrap">
+          <text class="share-link" @click="shareTemplate(t)">分享</text>
           <text class="received-info" v-if="t.receivedCount > 0">已领 {{ t.receivedCount }}/{{ t.perUserLimit }}</text>
           <button class="receive-btn" :class="{ done: t.receivedCount >= t.perUserLimit }"
                   :disabled="t.receivedCount >= t.perUserLimit || receiving"
@@ -54,7 +55,8 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
-import { getCouponTemplates, getUserCouponList, receiveCoupon } from '@/api/index.js'
+import { onShow, onShareAppMessage } from '@dcloudio/uni-app'
+import { getCouponTemplates, getUserCouponList, receiveCoupon, createCouponShareLink } from '@/api/index.js'
 import { useUserStore } from '@/store/user.js'
 
 const userStore = useUserStore()
@@ -62,6 +64,7 @@ const tab = ref('receive')
 const templates = ref([])
 const myCoupons = ref([])
 const receiving = ref(false)
+const highlightId = ref(null)
 
 const switchTab = (t) => {
   tab.value = t
@@ -124,7 +127,53 @@ const formatDate = (s) => {
   return (s + '').substring(0, 10)
 }
 
+// 分享单张券：生成短链（复制），并支持右上角转发
+const shareTemplate = async (t) => {
+  if (!userStore.isLogin) {
+    uni.showToast({ title: '请先登录', icon: 'none' })
+    uni.navigateTo({ url: '/pages/login/login' })
+    return
+  }
+  highlightId.value = t.id
+  uni.showModal({
+    title: '分享优惠券',
+    content: '点击「复制短链」发给好友，或点右上角···分享给微信好友',
+    confirmText: '复制短链',
+    success: async (r) => {
+      if (!r.confirm) return
+      uni.showLoading({ title: '生成中' })
+      try {
+        const res = await createCouponShareLink(t.id)
+        uni.hideLoading()
+        const code = res?.shortCode || ''
+        if (code) {
+          uni.setClipboardData({ data: '/s/' + code, success: () => uni.showToast({ title: '已复制短链', icon: 'success' }) })
+        }
+      } catch (e) {
+        uni.hideLoading()
+        uni.showToast({ title: e.message || '生成失败', icon: 'none' })
+      }
+    }
+  })
+}
+
+// 消费 App 冷/热启动写入的 templateId，定位到对应券并高亮
+const applyPendingTemplate = () => {
+  const tid = uni.getStorageSync('pendingCouponTemplateId')
+  if (!tid) return
+  uni.removeStorageSync('pendingCouponTemplateId')
+  highlightId.value = Number(tid)
+  if (tab.value !== 'receive') switchTab('receive')
+}
+
 onMounted(loadTemplates)
+onShow(applyPendingTemplate)
+
+// 右上角转发当前高亮券
+onShareAppMessage(() => ({
+  title: '送你一张优惠券，快来领取',
+  path: '/pages/coupon/coupon' + (highlightId.value ? '?templateId=' + highlightId.value : '')
+}))
 </script>
 
 <style lang="scss" scoped>
@@ -153,6 +202,8 @@ onMounted(loadTemplates)
 .coupon-name { font-size: 28rpx; font-weight: 600; display: block; }
 .coupon-valid { font-size: 22rpx; color: #999; margin-top: 6rpx; display: block; }
 .receive-wrap { text-align: center; }
+.coupon-card.highlight { border: 3rpx solid $warning-color; box-shadow: 0 4rpx 16rpx rgba(232,161,60,.3); }
+.share-link { font-size: 22rpx; color: $warning-color; display: block; margin-bottom: 8rpx; text-decoration: underline; }
 .received-info { font-size: 20rpx; color: #999; display: block; margin-bottom: 6rpx; }
 .receive-btn {
   width: 120rpx; height: 56rpx; line-height: 56rpx;
