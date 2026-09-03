@@ -15,7 +15,7 @@ import java.util.Map;
 @RestController
 @RequestMapping("/user/coupon-share")
 @Slf4j
-@Tag(name = "优惠券分享短链（公开）")
+@Tag(name = "优惠券分享短链")
 public class CouponShareController {
 
     private final CouponShareService couponShareService;

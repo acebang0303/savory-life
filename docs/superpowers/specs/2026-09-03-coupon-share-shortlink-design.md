@@ -21,7 +21,7 @@
 - 短链基础设施已存在且完整：`ShortLinkService.create(longUrl)`（MurmurHash64+Base62+Caffeine→布隆→DB）、`POST /api/short-link/create`、`GET /s/{code}` 302。**零业务调用**，本次接入即复用。
 - `CouponService.receive(templateId)` 已存在，B 领券走它即可，**无需改领取逻辑**。
 - **admin 代理约定**：vite 把 `/api` rewrite 成 `/admin`；另有 `/user` 代理段不 rewrite。故公开接口**必须挂 `/user/**`** 才能被 admin 的 H5 页正常调用。
-- **拦截器**：`WebMvcConfiguration` 拦 `/user/**`（JwtTokenUserInterceptor）与 `/admin/**`（AdminInterceptor）。`/user/coupon-share/**` 需在 User 拦截器 exclude 放行。`/api/**`、`/s/**` 本就不拦。
+- **拦截器**：`WebMvcConfiguration` 拦 `/user/**`（JwtTokenUserInterceptor）与 `/admin/**`（AdminInterceptor）。仅公开只读路径 `/user/coupon-share/info` 与 `/user/coupon-share/minicode` 需在 User 拦截器 exclude 放行；`/user/coupon-share/link` 保留走 JWT（分享由登录用户发起）。`/api/**`、`/s/**` 本就不拦。
 - 小程序 coupon 页、领券 API（`/user/coupon/receive/{id}`）已存在。
 
 ## 架构与数据流
@@ -62,7 +62,7 @@ A 点「复制短链」→ 调 POST /user/coupon-share/link?templateId=5 → 后
 
 **新增 `CouponShareService`**（薄封装）：查模板（只读，复用 CouponTemplateMapper）、拼 URL、调 ShortLinkService、生成占位码。
 
-**修改 `WebMvcConfiguration`**：User 拦截器 `excludePathPatterns("/user/coupon-share/**")`。
+**修改 `WebMvcConfiguration`**：User 拦截器仅放行两个公开只读路径 `excludePathPatterns("/user/coupon-share/info", "/user/coupon-share/minicode")`（`/link` 保留走 JWT）。
 
 **配置**：`coupon.share.base-url=http://localhost:5173`（application.yml，生产覆盖）。
 
