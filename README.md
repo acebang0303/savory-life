@@ -1,5 +1,7 @@
 # 知味生活 · SavoryLife
 
+[![CI](https://github.com/acebang0303/savory-life/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/acebang0303/savory-life/actions/workflows/ci.yml)
+
 融合 **O2O 本地生活 + 内容社区 + AI Agent 智能助手** 的全栈平台。
 
 用户端微信小程序点餐/下单/秒杀，商家端接单/备货，管理端运营，附数据大屏与 AI 智能助手（美食推荐 / 商家经营问数）。
