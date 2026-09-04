@@ -210,24 +210,27 @@ public class OrderServiceImpl implements OrderService {
     }
 
     @Override
-    @Transactional
+    // 不用事务：秒杀库存回补需跨 market 库（@DS("market")），类级 @DS("trade") + @Transactional 会把连接绑定 trade 导致切换失效（同 handleTimeoutOrder）
     public void cancel(Long orderId, Long userId) {
-        //1、查询订单
+        //1、查询并校验：订单归属 + 仅待支付可取消
         Orders order = orderMapper.selectById(orderId);
         if (order == null || !order.getUserId().equals(userId)) {
             throw new OrderBusinessException("订单不存在");
         }
-
-        //2、只有待支付状态可以取消
         if (!order.getStatus().equals(Orders.PENDING_PAYMENT)) {
             throw new OrderBusinessException("当前订单状态不允许取消");
         }
 
-        //3、更新订单状态
-        order.setStatus(Orders.CANCELLED);
-        order.setCancelReason("用户主动取消");
-        order.setCancelTime(LocalDateTime.now());
-        orderMapper.updateById(order);
+        //2、CAS 置取消：仅当仍处于待支付才成功，避免与支付入账并发把已支付订单误取消
+        int updated = orderMapper.cancelByUser(orderId, "用户主动取消");
+        if (updated == 0) {
+            throw new OrderBusinessException("当前订单状态不允许取消");
+        }
+
+        //3、秒杀订单回补库存（DB 库存 + Redis 库存 + 用户限购计数）
+        if (order.getIsSeckill() != null && order.getIsSeckill() == 1) {
+            seckillService.restoreSeckillOnTimeout(order.getSeckillActivityId(), order.getUserId());
+        }
         log.info("订单已取消，orderId: {}", orderId);
     }
 

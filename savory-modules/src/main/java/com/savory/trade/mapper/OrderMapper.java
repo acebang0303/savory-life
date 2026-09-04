@@ -18,4 +18,12 @@ public interface OrderMapper extends BaseMapper<Orders> {
     @Update("UPDATE orders SET status = 6, cancel_time = NOW(), update_time = NOW() " +
             "WHERE id = #{orderId} AND status = 1")
     int cancelPendingIfUnpaid(@Param("orderId") Long orderId);
+
+    /**
+     * 用户主动取消：CAS 仅待支付(1)→已取消(6)，并记录取消原因。返回受影响行数，
+     * 避免与支付入账并发时把已支付订单误取消。
+     */
+    @Update("UPDATE orders SET status = 6, cancel_reason = #{cancelReason}, cancel_time = NOW(), update_time = NOW() " +
+            "WHERE id = #{orderId} AND status = 1")
+    int cancelByUser(@Param("orderId") Long orderId, @Param("cancelReason") String cancelReason);
 }
