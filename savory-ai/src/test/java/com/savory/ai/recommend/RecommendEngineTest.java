@@ -5,6 +5,8 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.mockito.junit.jupiter.MockitoSettings;
+import org.mockito.quality.Strictness;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.util.Collections;
@@ -17,7 +19,14 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 
+/**
+ * getUserPreferenceText 对同一个 varargs 方法 queryForList(String, Object...)
+ * 按不同实参个数做了多个 when；strict stubbing 下（CI 环境已复现）会抛
+ * PotentialStubbingProblem 把实现里的 catch 触发、返回空串。这里用 LENIENT
+ * 关闭 strict 检查，让两个 stub 按参数正常匹配（本地/CI 行为一致）。
+ */
 @ExtendWith(MockitoExtension.class)
+@MockitoSettings(strictness = Strictness.LENIENT)
 class RecommendEngineTest {
 
     @Mock(name = "bizJdbcTemplate")
