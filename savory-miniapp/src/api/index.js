@@ -220,6 +220,12 @@ export const receiveCoupon = (templateId) => request({
   method: 'POST'
 })
 
+// 生成优惠券分享短链（需登录，分享者是小程序登录用户）
+export const createCouponShareLink = (templateId) => request({
+  url: '/user/coupon-share/link?templateId=' + templateId,
+  method: 'POST'
+})
+
 // ===== 签到 =====
 export const signToday = () => request({
   url: '/user/sign',
@@ -370,7 +376,7 @@ export default {
   addToCart, getCartList, updateCartNum, deleteCartItem, clearCart,
   submitOrder, getOrderPage, getOrderDetail, cancelOrder, payOrder, mockPayConfirm, remindOrder,
   getAddressList, addAddress, updateAddress, deleteAddress, setDefaultAddress,
-  getUserCouponList, getCouponTemplates, receiveCoupon,
+  getUserCouponList, getCouponTemplates, receiveCoupon, createCouponShareLink,
   signToday, getSignToday, getSignMonth,
   getNoteFeed, getNoteHot, getNoteDetail, getMyNotes,
   publishNote, likeNote, collectNote, followUser, getMyFollowing,

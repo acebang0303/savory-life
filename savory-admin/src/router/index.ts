@@ -9,6 +9,12 @@ const routes: RouteRecordRaw[] = [
     meta: { title: '登录', requiresAuth: false }
   },
   {
+    path: '/coupon-share',
+    name: 'CouponShare',
+    component: () => import('@/views/coupon/CouponShare.vue'),
+    meta: { title: '优惠券领取', requiresAuth: false }
+  },
+  {
     path: '/',
     component: () => import('@/views/layout/MainLayout.vue'),
     redirect: '/dashboard',
